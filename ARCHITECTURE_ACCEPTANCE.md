@@ -207,59 +207,68 @@ Store sanitized/synthetic fixtures in repository; real corporate baselines only 
 
 The newer implementation, executed checks and remaining gates are documented in [the current acceptance report](docs/verification/acceptance-2026-11-08.md). The snapshot and implementation order below describe the preceding slice and are retained as history, not current completion claims.
 
-This is a repository-evidence snapshot, not an acceptance claim for the product. `PARTIAL` means some evidence exists but the full gate is not met. The current implemented vertical slice is project-definition persistence; DBC facts, ECUC values and generated artifacts are not stored.
+This is a repository-evidence snapshot, not an acceptance claim for the product. `PARTIAL` means some evidence exists but the full gate is not met. The current implemented vertical slice covers project-definition persistence, scoped DBC source/fact import, ECU Tx/Rx queries, and read-only Eclipse project inventory. It is not an AUTOSAR configuration or generation implementation.
 
 | Gate | Status | Evidence / remaining gap |
 |---|---|---|
-| A01 | PARTIAL | Electron calls the C++ JSON-RPC engine; validated project definitions are stored by the engine. Unvalidated form edits and DBC preview data remain renderer memory. |
+| A01 | PARTIAL | Electron calls the C++ JSON-RPC engine; validated project definitions and explicitly imported DBCs persist in SQLite. Unsaved form edits and pre-import previews remain renderer state. |
 | A02 | PASS | Standalone C++20 JSON-RPC executable and C++ unit-test target are defined; unit and protocol tests run without Electron. |
-| A03 | PARTIAL | SQLite v1 migration, WAL, transactional project-definition save, restart restore and rollback test exist. Other engine-owned facts, provenance and configuration values are not persisted. |
+| A03 | PASS | SQLite v1→v2 migration, WAL, transactional project and DBC writes, restart restore, idempotent imports and injected rollback tests cover all currently implemented engine-owned state. ECUC values and generated artifacts are not implemented (A05–A09). |
 | A04 | NOT_IMPLEMENTED | No model-reference graph or configuration-rule dependency graph. |
-| A05 | PARTIAL | DBC previews and project policy have separate types, but there is no persisted provenance model or derived ECUC layer. |
+| A05 | PARTIAL | DBC source identity, original text, digest, parser version, diagnostics and parsed facts are persisted separately from the project definition. Derived ECUC values, artifact provenance and user overrides are absent. |
 | A06 | NOT_IMPLEMENTED | No ECUC Definition/Configuration Values importer, `DEFINITION-REF` resolver or schema-driven validator. |
 | A07 | NOT_IMPLEMENTED | No ARXML import/export or unknown-extension preservation/blocking path. |
 | A08 | NOT_IMPLEMENTED | No legacy Xtend/Harmonize adapter or differential invocation path. The current engine does not invoke Harmonize. |
 | A09 | NOT_IMPLEMENTED | No generator registry or artifact-ownership manifest. |
-| A10 | NOT_IMPLEMENTED | A synthetic Eclipse-style fixture exists; no in-place project inventory/preservation adapter or manifest-diff test. |
+| A10 | PARTIAL | `project.inspect` reads and hashes an existing directory, recognizes `.project`/`.cproject`, refuses symlink/reparse traversal, and does not execute build scripts. It is not a project write adapter and is not qualified against real projects. |
 | A11 | NOT_IMPLEMENTED | No optional SCons/BAT build adapter or separate generation/build commands. |
 | A12 | PARTIAL | `dbc.diff` reports semantic message/signal changes. Rule read sets, impact analysis, output ownership and write-if-changed generation are absent. |
 | A13 | PARTIAL | DBC and project draft checks return structured diagnostics; ECUC definition constraints, object-path-complete diagnostics and vendor/project rule separation are absent. |
-| A14 | NOT_IMPLEMENTED | DBC messages are previewed by file; the UI has no target-ECU Rx/Tx query or ECU-centric network map. |
+| A14 | PARTIAL | Persisted `network.ecu` Tx/Rx queries power an ECU-focused UI list and peer/message filtering; unknown ECUs are rejected rather than fabricated. Automated renderer interaction fixtures/screenshots are absent. |
 | A15 | PASS | No AI path is present in the authoritative engine/configuration flow; engine validation runs without AI. |
-| A16 | PARTIAL | DBC input is preview-only and project persistence writes only the engine database. Explicit project baseline hashing, output destination ownership and atomic generated-file publication are absent. |
+| A16 | PARTIAL | DBC import writes only SQLite; project inventory is read-only and records file hashes; database writes are transactional. Generator destinations, baseline immutability during publication and atomic generated-file writes are not implemented. |
 
 | DBC fixtures | Status | Evidence / remaining gap |
 |---|---|---|
-| D01–D02 | PARTIAL | Basic Intel frame-boundary and Motorola traversal checks exist; full occupancy, byte-crossing and overlap fixture coverage is incomplete. |
-| D03, D05–D07 | NOT_IMPLEMENTED | Extended-ID normalization, channel scoping and multiplex-aware overlap acceptance are missing. |
-| D04 | PARTIAL | Duplicate frame IDs within one DBC produce a diagnostic; channel policy and full source-location conflict handling are absent. |
-| D08 | PARTIAL | Cross-file repeated name/frame-ID keys produce deterministic unresolved warnings; no explicit network/channel conflict policy. |
-| D09–D12 | NOT_IMPLEMENTED | No durable DBC source import/idempotency, artifact invalidation, unknown-attribute preservation or defined CAN-FD dialect. |
-| D13–D15 | PARTIAL | Unknown nodes and invalid bit layout receive diagnostics. Numeric factor/offset parsing, min/max ordering and all malformed reference cases are not validated. |
+| D01–D02 | PASS | Intel/Motorola bit occupancy, frame-boundary, byte crossing and mixed-endian overlap tests cover the supported layouts. |
+| D03 | PASS | Standard/extended ID normalization, width and reserved-bit validation have parser fixtures. |
+| D04–D06 | PASS | Duplicate frame/name conflicts are rejected within an explicitly assigned channel with source locations; separate channels are isolated; ordinary signal overlap is rejected. |
+| D07 | PARTIAL | Simple multiplex selectors and mutually exclusive branches are checked; extended `SG_MUL_VAL_` and nested forms are not modeled. |
+| D08–D09 | PASS | Multi-source imports reject same-channel frame/name conflicts, keep same IDs on separate channels independent, and make unchanged reimports idempotent. |
+| D10 | PARTIAL | `dbc.diff` identifies semantic changes and imports replace a source's facts transactionally; rule/artifact impact and output invalidation are absent. |
+| D11 | PASS | Unsupported declarations produce stable diagnostics and original DBC text is retained; generation remains blocked rather than claiming unsupported semantics are modeled. |
+| D12 | PASS | Import requires an explicit Classic CAN/CAN FD choice; FD payload length and channel policy conflicts are validated. |
+| D13 | PASS | Unknown senders/receivers are diagnosed and ECU queries reject undeclared target nodes instead of fabricating mappings. |
+| D14 | PASS | Security/diagnostic policy remains explicitly unresolved and imports report generation blocked; no E2E/SecOC semantics are inferred from DBC. |
+| D15 | PASS | Invalid scaling, non-finite values, reversed ranges, invalid bit lengths and stable parser issue codes have negative tests. |
 
 | Verification | Status | Evidence / remaining gap |
 |---|---|---|
-| V01, V13 | PARTIAL | Parser diagnostics and deterministic replay tests cover the supported preview subset; no full source-fact comparison. |
-| V02–V10, V12 | NOT_IMPLEMENTED | No ECU read model, ECUC/ARXML/code baseline, build/runtime equivalence, incremental-vs-full, no-op output, or real-project isolation harness. |
-| V11 | PARTIAL | Project database write rollback is tested; parser, generator, filesystem publication and build failure atomicity are not. |
-| V14 | NOT_IMPLEMENTED | Project definition restores from SQLite, but renderer DBC previews and an ECU read model do not. |
+| V01 | PARTIAL | Supported DBC facts are parsed, persisted, and queried with source identity and diagnostics; no independent source-fact oracle or full dialect comparison exists. |
+| V02 | PASS | Persisted target-ECU Tx/Rx query has parser/storage and JSON-RPC restart coverage; unknown nodes are not synthesized. |
+| V03–V09 | NOT_IMPLEMENTED | No ECUC/ARXML, generated C/H, baseline build, runtime, or legacy/native comparison harness. |
+| V10 | PARTIAL | Stable source digest/revision and no-op reimport are tested; repeat generation is unavailable. |
+| V11 | PARTIAL | Invalid import batches and injected SQLite write failures leave stored facts unchanged; filesystem publication and build failure atomicity are not applicable until those paths exist. |
+| V12 | PARTIAL | Synthetic Eclipse inventory hashes files read-only and detects a changed baseline; no approved real-project baseline harness exists. |
+| V13 | PARTIAL | SHA-256 vectors and deterministic inventory/import behavior are tested; generated-output determinism cannot yet be measured. |
+| V14 | PARTIAL | Renderer startup restores persisted project and DBC source state through JSON-RPC; the Node integration test covers the APIs but automated renderer interaction tests are absent. |
 | V15 | PASS | There is no AI-dependent engine behavior. |
-| V16 | PARTIAL | JSON-RPC request validation and Electron argument separation exist; a project adapter and hostile-path/symlink execution tests do not. |
+| V16 | PARTIAL | JSON-RPC and project-root validation, read-only inventory, symlink/reparse refusal, and rollback tests exist; no generated-file path/publication threat tests exist. |
 
 **Observed validation for this snapshot:**
 
-- `studio-engine-tests.exe` built with MinGW C++20 and the vendored SQLite library; all C++ unit tests passed, including SQLite restart persistence and injected write-failure rollback.
-- The standalone engine built with MinGW C++20; `npm.cmd run test:engine` passed, including a second engine process restoring the committed project definition from the same database.
+- `node scripts/build-engine.mjs --output="$env:TEMP\studio-acceptance-build"` built the standalone engine and ran `studio-engine-tests.exe` and `studio-acceptance-tests.exe`; both passed, including v1 record-preserving migration, DBC import/idempotency/conflict/rollback, ECU query, and read-only inventory tests.
+- With `STUDIO_ENGINE_PATH` set to that temporary executable, `npm.cmd run test:engine` passed, including `dbc.import`, `dbc.sources`, `network.ecu`, `project.inspect`, and a second engine process restoring project and DBC state.
 - `npm.cmd run build` passed (TypeScript check and Vite production build).
 - CMake/CTest were not run because CMake is not installed in the inspected environment.
 
 **Next implementation order:**
 
-1. Extend SQLite persistence from one project-definition record to imported DBC source identities, digests, parsed facts and provenance; add transactional reimport/idempotency tests (A03, A05, D08–D09, V01, V10–V11).
-2. Add a read-only Eclipse project inventory and immutable baseline manifest before any project-facing write adapter (A10, A16, V12).
-3. Implement target-ECU Tx/Rx read queries and focused UI presentation without inferring missing node mappings (A14, V02, V14).
-4. Expand DBC validation for ID format, signal occupancy/multiplexing, scaling/range errors and explicit CAN-FD policy (D03–D07, D12, D15).
-5. Defer ECUC/ARXML mappings, generator ownership, and equivalence gates until real vendor definitions and approved project baselines are available; do not invent those inputs (A06–A09, A11–A12, V03–V09).
+1. Extend lossless DBC semantics for `VAL_`, `VAL_TABLE_`, comments, typed attributes and extended multiplexing, with source spans and round-trip/preservation tests (A05, D07, D11, V01).
+2. Keep user policy and overrides distinct from imported DBC facts; add explicit provenance and audit history before introducing derived ECUC values (A03, A05, A13).
+3. Import real, approved ECUC Definition and Configuration Value inputs and validate `DEFINITION-REF`, types, multiplicity and ranges; do not fabricate vendor defaults (A06–A07).
+4. Add reference and rule-dependency indexes with change-to-affected-rule tests before implementing incremental generation (A04, A12).
+5. Qualify an owned native artifact and optional BAT/SCons adapter against frozen, approved Eclipse project baselines, with write-if-changed, rollback and legacy comparison tests (A08–A11, A16, V03–V13).
 
 ### Ready-to-paste Codex audit prompt
 
