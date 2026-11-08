@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?fileVersion 4.0.0?>
+<cproject storage_type_id="org.eclipse.cdt.core.XmlProjectDescriptionStorage">
+  <storageModule moduleId="org.eclipse.cdt.core.settings">
+    <cconfiguration id="studio.synthetic.debug">
+      <storageModule
+          buildSystemId="org.eclipse.cdt.managedbuilder.core.configurationDataProvider"
+          id="studio.synthetic.debug"
+          moduleId="org.eclipse.cdt.core.settings"
+          name="Debug">
+        <externalSettings/>
+        <extensions/>
+        <configuration
+            artifactName="synthetic_can"
+            buildProperties="org.eclipse.cdt.build.core.buildType=org.eclipse.cdt.build.core.buildType.debug"
+            id="studio.synthetic.debug"
+            name="Debug"
+            parent="org.eclipse.cdt.build.core.prefbase.cfg">
+          <folderInfo id="studio.synthetic.debug." name="/" resourcePath="">
+            <toolChain id="studio.synthetic.toolchain" name="External SCons" superClass="org.eclipse.cdt.build.core.prefbase.toolchain">
+              <targetPlatform id="studio.synthetic.target" name="Host" superClass="org.eclipse.cdt.build.core.target_platform"/>
+              <builder
+                  buildPath="${workspace_loc:/SyntheticEclipseCan/Build}"
+                  id="studio.synthetic.builder"
+                  keepEnvironmentInBuildfile="false"
+                  managedBuildOn="false"
+                  name="SCons (invoke scons.bat separately)"
+                  superClass="org.eclipse.cdt.build.core.settings.default.builder"/>
+            </toolChain>
+          </folderInfo>
+        </configuration>
+      </storageModule>
+      <storageModule moduleId="org.eclipse.cdt.core.externalSettings"/>
+    </cconfiguration>
+  </storageModule>
+</cproject>

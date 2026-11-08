@@ -1,0 +1,12 @@
+{
+  "fixture": "eclipse_can_project",
+  "classification": "synthetic-smoke-only",
+  "legacyBaseline": false,
+  "projectMetadata": [".project", ".cproject"],
+  "dbcSources": ["VehicleNetwork.dbc"],
+  "arxmlDefinitions": ["Configuration/Can_ECU_Configuration_PDF.arxml"],
+  "arxmlValues": ["Configuration/Can.arxml"],
+  "generatorBaseline": "not-provided",
+  "sconsBuildScript": "Build/SConstruct",
+  "projectSpecificBuildWrapper": "scons.bat"
+}

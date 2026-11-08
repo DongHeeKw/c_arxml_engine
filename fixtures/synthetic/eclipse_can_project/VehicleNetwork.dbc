@@ -1,0 +1,17 @@
+VERSION "Synthetic AUTOSAR Studio fixture"
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+
+BS_:
+
+BU_: ECU_A ECU_B
+
+BO_ 291 VehicleStatus: 8 ECU_A
+ SG_ VehicleSpeed : 0|16@1+ (0.1,0) [0|250] "km/h" ECU_B
+ SG_ IgnitionState : 16|2@1+ (1,0) [0|3] "" ECU_B
+
+BO_ 512 BodyStatus: 8 ECU_B
+ SG_ DoorState : 0|4@1+ (1,0) [0|15] "" ECU_A
