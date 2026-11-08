@@ -1,0 +1,23 @@
+# CMake / C++
+build/
+cmake-build-*/
+out/
+*.o
+*.obj
+*.exe
+
+# Node / Electron
+node_modules/
+apps/desktop/dist/
+apps/desktop/release/
+
+# IDE and OS
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+Thumbs.db
+Desktop.ini
+.env
+.env.*
+!.env.example
