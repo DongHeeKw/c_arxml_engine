@@ -6,7 +6,7 @@
 
 ## Implementation baseline
 
-The repository currently contains a C++20 JSON-RPC engine and an Electron/React shell. It previews DBC files with `dbc.parseBatch` on a bounded C++ worker pool and validates a session-only project draft through `project.configure`. The draft captures DBC source names, MCU target, OS periodic/event/ISR requirements, DCM services, and traceable software requirements. It is not persisted: SQLite, durable project loading, full DBC dialect coverage, ARXML/ECUC validation, and C/H generation are not implemented. The DBC preview is not a claim of AUTOSAR support.
+The repository currently contains a C++20 JSON-RPC engine and an Electron/React shell. It previews DBC files with `dbc.parseBatch` on a bounded C++ worker pool and validates a session-only project draft through `project.configure`. The current concurrency unit is an independent DBC file; message-level semantic change sets, persistent import/Harmonize, and dependency invalidation are not implemented yet. The draft captures DBC source names, MCU target, OS periodic/event/ISR requirements, DCM services, and traceable software requirements. It is not persisted: SQLite, durable project loading, full DBC dialect coverage, ARXML/ECUC validation, and C/H generation are not implemented. The DBC preview is not a claim of AUTOSAR support.
 
 ### Eclipse project compatibility is a core requirement
 
@@ -585,6 +585,33 @@ These catch errors even when there is no reliable old-tool oracle:
 - **Determinism:** same source/policy/rule/generator versions → identical canonical output across repeated runs.
 
 **The most important regression invariant is `incremental output == clean full output`**, checked across a mutation corpus. It catches missing invalidation edges that can otherwise silently produce stale C files.
+
+### 9.7.1 Cross-level idempotency and black-box comparison contract
+
+Do not treat **message-level C++ processing** and **file-level legacy generation** as the same unit:
+
+- The native engine's first comparison unit is a stable semantic message (and its signals, attributes, source ownership, and dependency edges). A message mutation must identify changed, unchanged, added, and removed semantic objects and the affected rules. This does **not** mean patching part of a generated C file: initially regenerate each affected whole output file and publish it only if its bytes changed.
+- The legacy Harmonize/Xtend path is a black box whose observable unit is an input project/file set and its resulting ARXML/C/H artifact set. Do not require access to or infer its internal message-level branches. Drive it with controlled file-level inputs, then compare the semantic message/model delta and complete output-file manifest.
+- Bridge the two levels with a versioned ownership/dependency manifest: semantic message IDs → ECUC/config objects and rules → generated output files. If the mapping is unknown, classify the case as `SPEC_AMBIGUITY`/`UNSUPPORTED_FEATURE`; do not weaken the assertion to make the run pass.
+
+Separate **semantic idempotence** from **operational no-op behavior**. Semantic idempotence means equivalent canonical objects, references, ownership, and generated behavior after replay. Operational no-op additionally means no revision/`updated_at` advance and no generated file rewrite when the semantic input is unchanged. Record hashes and mtimes separately; a legacy tool may pass semantic idempotence while failing the no-rewrite optimization.
+
+| Case ID | Controlled branch / replay | Native C++ assertion | Legacy black-box assertion |
+|---|---|---|---|
+| `ARXML-DB-01` | Import a frozen ARXML definition/value set into an empty DB; export; import that export twice | Canonical supported model, reference graph, ownership, and entity counts stabilize after the first normalization; no duplicate rows; second import is a no-op | Not applicable unless the legacy path also round-trips the same fixture; compare its emitted ARXML semantically, not by whitespace |
+| `ARXML-DB-02` | Repeat with vendor extensions, variants, unresolved references, and a deliberately invalid value | Preserve supported unknown data or emit an explicit unsupported/error result; failed validation leaves the committed revision unchanged | Capture pass/fail and diagnostics for the whole project/file set; never treat silent dropping as parity |
+| `DBC-CPP-01` | Parse/import identical source bytes twice | Stable per-message IDs, unchanged change set on replay, unchanged object counts and semantic hash | Run the same DBC/project file set through the complete import + Harmonize path twice; canonical output and artifact manifest must stabilize |
+| `DBC-CPP-02` | Change exactly one field on exactly one message, then replay the same mutation | One expected message/property changes; unrelated messages remain semantically unchanged; only declared dependent rules are invalidated | Change that one message in a cloned DBC file, run the complete legacy pipeline, and inspect every output file; compare the semantic delta, not the legacy tool's internal granularity |
+| `DBC-CPP-03` | Add/remove one message; repeat with two changed messages sharing a generated file | Correct create/delete ownership and dependency closure; removal cannot delete shared or user-owned configuration | Run each as a separate whole-file/project case; check full ARXML/C/H set for stale entries, duplicate entries, and build impact |
+| `DBC-CPP-04` | Same CAN ID on one bus, then on a distinct bus; conflicting duplicate across two DBC files | Enforce bus-scoped uniqueness; conflict is explicit and transactionally leaves active state unchanged | Supply the corresponding complete DBC set and recorded bus decisions to legacy; capture diagnostics and all outputs as black-box evidence |
+| `DBC-CPP-05` | No-op, malformed DBC, invalid mapping, and failed Harmonize/validation branches | No-op preserves revision; failures do not partially commit entities or publish outputs | Restore the pristine project before each run; capture exit status/logs/artifacts and verify the source workspace or staged outputs were not partially changed |
+| `PAIR-01` | Run every supported mutation from the same frozen baseline in native incremental, native clean-full, and legacy modes | Native incremental model/artifacts equal native clean-full results; message-level change set matches the independent expected case | Compare complete legacy file manifests and semantic contents against the paired native result after aggregating native affected messages through the ownership manifest |
+
+For **ARXML ↔ DB**, compare canonical AUTOSAR object identity, definition/value references, parameter types/values, variation conditions, vendor extensions, and source ownership—not XML formatting. Repeating import/export must reach a fixed point: `canonical(import(export(DB))) == canonical(DB_supported_scope)`. Unsupported scope must fail or be explicitly classified, never disappear silently.
+
+For **legacy idempotency**, the required black-box sequence is: restore a hash-verified pristine project → record exact tool/options/manual decisions → run import + Harmonize + generation once → snapshot logs, canonical ARXML, all generated C/H hashes and build result → run the same operation again without changing inputs → compare semantic ARXML, C/H contents, diagnostics, and build result → separately record revisions/mtimes/touched files. Repeat each mutation branch from a fresh pristine clone; do not chain unrelated mutations through a possibly mutated legacy workspace. If the user's legacy implementation changes to make this pass, keep the same frozen cases and verify the before/after artifact evidence with the harness rather than changing expected results ad hoc.
+
+These are **acceptance contracts, not claimed implementation coverage**: SQLite/ARXML round trips, stateful DBC import/Harmonize, the ownership manifest, and an executable legacy adapter are not yet implemented, and no approved legacy project/baseline is present in this repository. Until those exist, mark the corresponding cases `BLOCKED` and do not claim cross-tool parity.
 
 ### 9.8 Mutation corpus / change impact matrix
 

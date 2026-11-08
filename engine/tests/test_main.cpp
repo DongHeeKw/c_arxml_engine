@@ -52,6 +52,17 @@ void test_dbc_parser() {
     check(parsed.issues.empty(), "valid DBC declarations should not produce issues");
 }
 
+void test_dbc_parse_is_deterministic_on_replay() {
+    constexpr auto source =
+        "BU_: ECU_A ECU_B\n"
+        "BO_ 291 Status: 8 ECU_A\n"
+        " SG_ Speed : 0|16@1+ (0.1,0) [0|250] \"km/h\" ECU_B\n";
+    const auto first = studio::to_json(studio::parse_dbc(source));
+    const auto replay = studio::to_json(studio::parse_dbc(source));
+    check(studio::serialize_json(first) == studio::serialize_json(replay),
+          "replaying a DBC parse should produce identical semantic output");
+}
+
 void test_srs_validation_accepts_valid_configuration() {
     const auto issues = studio::validate_project_definition(valid_project());
     check(issues.empty(), "valid project SRS should pass validation");
@@ -115,6 +126,7 @@ void test_thread_pool_rejects_zero_workers() {
 
 int main() {
     test_dbc_parser();
+    test_dbc_parse_is_deterministic_on_replay();
     test_srs_validation_accepts_valid_configuration();
     test_srs_validation_reports_missing_trigger_data_and_duplicate_service();
     test_thread_pool_runs_independent_tasks_concurrently();

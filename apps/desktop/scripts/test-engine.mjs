@@ -116,6 +116,7 @@ const requests = [
     },
   },
   { jsonrpc: "2.0", id: 15, method: "project.status", params: {} },
+  { jsonrpc: "2.0", id: 16, method: "dbc.parse", params: { text: fixtureText } },
 ];
 const input = `${requests.map((request) => JSON.stringify(request)).join("\n")}\n{invalid\n`;
 const processResult = spawnSync(executable, [], { input, encoding: "utf8" });
@@ -123,7 +124,7 @@ const processResult = spawnSync(executable, [], { input, encoding: "utf8" });
 assert.equal(processResult.error, undefined, processResult.error?.message);
 assert.equal(processResult.status, 0, processResult.stderr);
 const responses = processResult.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line));
-assert.equal(responses.length, 16);
+assert.equal(responses.length, 17);
 assert.equal(responses[0].result.engineVersion, "0.1.0");
 assert.equal(responses[0].result.protocolVersion, "1.0");
 assert.ok(responses[0].result.supportedMethods.includes("dbc.parseBatch"));
@@ -158,6 +159,7 @@ assert.equal(responses[14].result.projectOpen, true);
 assert.equal(responses[14].result.revision, 1);
 assert.equal(responses[14].result.persistence, "in-memory-draft");
 assert.equal(responses[14].result.definition.name, "BodyController");
-assert.equal(responses[15].error.code, -32700);
+assert.deepEqual(responses[15].result, responses[8].result);
+assert.equal(responses[16].error.code, -32700);
 
 console.log("Engine JSON-RPC smoke tests passed.");
