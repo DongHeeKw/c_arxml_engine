@@ -516,19 +516,27 @@ ORDER BY m.can_id,m.extended,s.uri,m.name
         while ((receiver_step=sqlite3_step(receiver_query.get()))==SQLITE_ROW)
             if (column_text(receiver_query.get(),0)!="Vector__XXX") receivers.emplace_back(column_text(receiver_query.get(),0));
         if (receiver_step!=SQLITE_DONE) throw std::runtime_error("Could not read ECU peers");
+        Statement transmitter_node(database_,"SELECT 1 FROM dbc_node WHERE source_id=?1 AND name=?2");
+        sqlite3_bind_int64(transmitter_node.get(),1,sqlite3_column_int64(query.get(),0));
+        bind_text(transmitter_node.get(),2,column_text(query.get(),6));
+        const bool transmitter_declared=sqlite3_step(transmitter_node.get())==SQLITE_ROW;
+        Json::Array peers;
+        if (tx) {
+            for (const auto& receiver : receivers) {
+                if (*receiver.as_string()!=ecu)
+                    peers.emplace_back(Json::Object{{"name",receiver},{"direction","Tx"}});
+            }
+        } else if (rx && transmitter_declared && column_text(query.get(),6)!="Vector__XXX") {
+            peers.emplace_back(Json::Object{{"name",column_text(query.get(),6)},{"direction","Rx"}});
+        }
         messages.emplace_back(Json::Object{{"sourceId",static_cast<double>(sqlite3_column_int64(query.get(),0))},
             {"sourceUri",column_text(query.get(),1)},{"name",column_text(query.get(),2)},
             {"canId",static_cast<double>(sqlite3_column_int64(query.get(),3))},
             {"extended",sqlite3_column_int(query.get(),4)!=0},{"dlcBytes",sqlite3_column_int(query.get(),5)},
             {"transmitter",column_text(query.get(),6)},{"line",sqlite3_column_int(query.get(),7)},
             {"direction",tx ? (rx?"Tx/Rx":"Tx") : "Rx"},{"signals",std::move(signals)},
-            {"receivers",std::move(receivers)},
-            {"transmitterDeclared",[&] {
-                Statement node(database_,"SELECT 1 FROM dbc_node WHERE source_id=?1 AND name=?2");
-                sqlite3_bind_int64(node.get(),1,sqlite3_column_int64(query.get(),0));
-                bind_text(node.get(),2,column_text(query.get(),6));
-                return sqlite3_step(node.get())==SQLITE_ROW;
-            }()}});
+            {"receivers",std::move(receivers)},{"peers",std::move(peers)},
+            {"transmitterDeclared",transmitter_declared}});
     }
     if (step!=SQLITE_DONE) throw std::runtime_error("Could not read ECU messages");
     return Json::Object{{"channel",channel},{"ecu",ecu},{"messages",std::move(messages)},

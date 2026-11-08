@@ -105,6 +105,14 @@ void storage_tests(const std::filesystem::path& root) {
             "same-channel message names conflict even when their frame IDs differ");
         require(field(store.dbc_sources(),"files").as_array()->size()==2,"failed batch preserves both sources");
         require(field(store.ecu_view("CAN1","B"),"messages").as_array()->size()==1,"receiver view reads persisted facts");
+        const auto receive_view=store.ecu_view("CAN1","B");
+        const auto& receive_peers=*field(field(receive_view,"messages").as_array()->at(0),"peers").as_array();
+        require(receive_peers.size()==1 && *field(receive_peers[0],"name").as_string()=="A",
+                "multicast receivers must not become connected peers of each other");
+        require(*field(receive_peers[0],"direction").as_string()=="Rx","engine owns peer direction");
+        const auto transmit_view=store.ecu_view("CAN1","A");
+        require(field(field(transmit_view,"messages").as_array()->at(0),"peers").as_array()->size()==2,
+                "transmitter has both declared multicast receivers as peers");
         require(*field(field(store.ecu_view("CAN1","A"),"messages").as_array()->at(0),"direction").as_string()=="Tx","transmitter classified");
         bool unknown=false;try { static_cast<void>(store.ecu_view("CAN1","UNKNOWN")); } catch (const std::invalid_argument&) { unknown=true; }
         require(unknown,"unknown ECU is never fabricated");

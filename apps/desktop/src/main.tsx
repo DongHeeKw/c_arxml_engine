@@ -1,6 +1,9 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import "./workspace.css";
+import { Icon } from "./Icon";
+import { NetworkWorkspace, type SavedSource, type EcuView } from "./NetworkWorkspace";
 
 type EngineStatus = {
   engineVersion: string;
@@ -94,9 +97,6 @@ type ProjectStatus = {
 };
 
 type SourceInput = { name: string; text: string; sourceUri?: string };
-type SavedSource = { sourceId: number; sourceUri: string; name: string; channel: string; nodes: string[]; revision: number };
-type EcuView = { messages: { sourceId: number; sourceUri: string; name: string; canId: number; direction: string;
-  transmitter: string; transmitterDeclared: boolean; receivers: string[]; signals: { name: string; line: number }[] }[] };
 
 const sampleDbc = `VERSION "1.0"
 
@@ -118,7 +118,8 @@ function App() {
   const [savedSources, setSavedSources] = useState<SavedSource[]>([]);
   const [selectedChannel, setSelectedChannel] = useState("");
   const [selectedEcu, setSelectedEcu] = useState("");
-  const [selectedPeer, setSelectedPeer] = useState("");
+  const [activePage, setActivePage] = useState("network");
+  const [notice, setNotice] = useState<string | null>(null);
   const [ecuView, setEcuView] = useState<EcuView | null>(null);
   const [networkError, setNetworkError] = useState<string | null>(null);
   const [inventory, setInventory] = useState<Awaited<ReturnType<Window["studio"]["inspectProject"]>>>(null);
@@ -183,10 +184,15 @@ function App() {
     let current = true;
     setEcuView(null);
     setNetworkError(null);
-    setSelectedPeer("");
+
     if (selectedChannel && selectedEcu) {
       void window.studio.request<EcuView>("network.ecu", { channel: selectedChannel, ecu: selectedEcu })
-        .then((view) => { if (current) setEcuView(view); })
+        .then((view) => {
+          if (view.messages.some((message) => !Array.isArray(message.peers))) {
+            throw new Error("Update and restart the local engine to use the network explorer.");
+          }
+          if (current) setEcuView(view);
+        })
         .catch((cause: unknown) => { if (current) setNetworkError(cause instanceof Error ? cause.message : String(cause)); });
     }
     return () => { current = false; };
@@ -298,6 +304,7 @@ function App() {
   }
 
   async function chooseDbcFiles() {
+    setActivePage("sources");
     if (!engine) {
       setImportError("Connect to the C++ engine before importing DBC files.");
       return;
@@ -336,35 +343,22 @@ function App() {
   }
 
   return (
+    <div className="app-frame">
+      <aside className="app-nav" aria-label="Workspace navigation">
+        <a className="nav-brand" href="#" onClick={(event) => { event.preventDefault(); setActivePage("network"); }}><span><Icon name="network" size={24}/></span><strong>AUTOSAR<span>STUDIO</span></strong></a>
+        <p className="nav-caption">WORKSPACE</p>
+        <nav>{([{ id: "network", label: "Network explorer", icon: "network" }, { id: "sources", label: "DBC sources", icon: "files" }, { id: "project", label: "Project definition", icon: "chip" }, { id: "review", label: "Review & readiness", icon: "check" }] as const).map((page) => <button key={page.id} aria-label={page.label} aria-current={activePage === page.id ? "page" : undefined} onClick={() => setActivePage(page.id)}><Icon name={page.icon}/><span>{page.label}</span>{page.id === "sources" && <small>{savedSources.length}</small>}</button>)}</nav>
+        <div className="nav-bottom"><span className="nav-project-icon"><Icon name="folder"/></span><strong>{projectDraft?.name || "New workspace"}</strong><span>{projectDraft?.mcu.partNumber || "No target configured"}</span><div className="nav-version">AUTOSAR CLASSIC <span>LOCAL</span></div></div>
+      </aside>
     <main className="shell">
-      <header className="topbar">
-        <div className="brand-mark" aria-hidden="true">AS</div>
-        <div className="brand-copy">
-          <h1>AUTOSAR Studio</h1>
-          <p>Configuration workspace</p>
-        </div>
-        <div className="project-indicator">
-          <span className="project-indicator-label">PROJECT DEFINITION</span>
-          <span>{projectDraft?.name ?? "Not defined"}</span>
-        </div>
-        <div className="connection" role="status">
-          <span className={`status-dot ${error ? "offline" : engine ? "online" : ""}`} />
-          <span>{error ? "Engine unavailable" : engine ? "Engine connected" : "Connecting"}</span>
-        </div>
-      </header>
-
-      <section className="page-heading">
-        <div>
-          <p className="eyebrow">DBC + SOFTWARE REQUIREMENTS</p>
-          <h2>ECU project workspace</h2>
-          <p>Describe the ECU target, network, OS timing, and diagnostic services in one project definition.</p>
-        </div>
-        <span className="mode-label">SESSION DRAFT</span>
-      </section>
-
+      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <strong>{({network:"Network explorer",sources:"DBC sources",project:"Project definition",review:"Review & readiness"} as Record<string,string>)[activePage]}</strong></div><div className="connection" role="status"><span className={`status-dot ${error ? "offline" : engine ? "online" : ""}`}/>{error ? "Engine unavailable" : engine ? "Engine connected" : "Connecting"}</div><span className="local-badge">LOCAL WORKSPACE</span></header>
+      <section className="page-heading"><div><p className="eyebrow">CONFIGURE WITH CLARITY</p><h1>{({network:"See how your ECU connects.",sources:"Bring your network together.",project:"Define the ECU behind it.",review:"Know what is ready."} as Record<string,string>)[activePage]}</h1><p>{({network:"Explore communication paths, follow a message, inspect every signal.",sources:"Preview your DBC files and save them to an explicit CAN channel.",project:"Capture the target hardware and software requirements in one place.",review:"Review source diagnostics and the steps still needed for generation."} as Record<string,string>)[activePage]}</p></div><button className="primary-button" disabled={!engine || isImporting || isSavingSources} onClick={() => void chooseDbcFiles()}><Icon name="upload" size={17}/>Import DBC files</button></section>
+      <div className="workspace-metrics"><div><Icon name="files"/><strong>{savedSources.length.toString().padStart(2,"0")}</strong><span>Saved sources</span></div><div><Icon name="network"/><strong>{new Set(savedSources.map((item) => item.channel)).size.toString().padStart(2,"0")}</strong><span>CAN channels</span></div><div><Icon name="chip"/><strong>{new Set(savedSources.flatMap((item) => item.nodes.filter((node) => node !== "Vector__XXX").map((node) => item.channel + "/" + node))).size.toString().padStart(2,"0")}</strong><span>Declared ECUs</span></div><div className="metric-note"><span className="tiny-dot"/>Source-backed configuration<span>Every connection traces to your DBC.</span></div></div>
+      {notice && <div className="save-notice" role="status"><Icon name="check" size={18}/>{notice}<button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice(null)}><Icon name="close" size={16}/></button></div>}
       <div className="workspace-grid">
         <section className="main-column">
-          <section className="dbc-panel">
+          <div hidden={activePage !== "network"}><NetworkWorkspace sources={savedSources} channel={selectedChannel} ecu={selectedEcu} view={ecuView} error={networkError} onChannel={(value) => { setSelectedChannel(value); setSelectedEcu(""); }} onEcu={setSelectedEcu} onImport={() => void chooseDbcFiles()}/></div>
+          <section className="dbc-panel" hidden={activePage !== "sources"}>
             <div className="panel-heading">
               <div>
                 <h3>DBC files</h3>
@@ -521,54 +515,19 @@ function App() {
             </details>
           </section>
 
-          <section className="dbc-panel" aria-label="Saved ECU network">
-            <div className="panel-heading"><h3>Saved ECU network</h3>
-              <button type="button" className="text-button" disabled={!engine} onClick={() => void inspectProject()}>Inspect Eclipse project</button>
-            </div>
-            {inventory && <p>{inventory.eclipseProject ? "Eclipse metadata found" : "Eclipse metadata incomplete"} · {inventory.files.length} files inspected · {inventory.issues.length} issues · {inventory.root}</p>}
-            <p className="hint-message">{savedSources.length} saved sources. Select a channel and ECU to inspect its communication links.</p>
-            <div className="form-grid">
-              <label className="form-field"><span>Channel</span>
-                <select value={selectedChannel} onChange={(event) => { setSelectedChannel(event.target.value); setSelectedEcu(""); }}>
-                  <option value="">Choose a channel</option>
-                  {[...new Set(savedSources.map((file) => file.channel))].sort().map((channel) => <option key={channel}>{channel}</option>)}
-                </select>
-              </label>
-              <label className="form-field"><span>Target ECU</span>
-                <select value={selectedEcu} onChange={(event) => setSelectedEcu(event.target.value)}>
-                  <option value="">Choose an ECU</option>
-                  {[...new Set(savedSources.filter((file) => file.channel === selectedChannel).flatMap((file) => file.nodes))]
-                    .filter((node) => node !== "Vector__XXX").sort().map((node) => <option key={node}>{node}</option>)}
-                </select>
-              </label>
-            </div>
-            {networkError && <p role="alert" className="error-message">{networkError}</p>}
-            {ecuView && <>
-              <div className="network-links" aria-label="ECU communication links">
-                <button type="button" className="text-button" aria-pressed={!selectedPeer} onClick={() => setSelectedPeer("")}>All links for {selectedEcu}</button>
-                {[...new Set(ecuView.messages.flatMap((message) => [...(message.transmitterDeclared ? [message.transmitter] : []), ...message.receivers]))]
-                  .filter((peer) => peer !== selectedEcu && peer !== "Vector__XXX").sort().map((peer) => (
-                    <button type="button" className="text-button" aria-pressed={selectedPeer === peer} key={peer} onClick={() => setSelectedPeer(peer)}>{selectedEcu} ↔ {peer}</button>
-                  ))}
-              </div>
-              {ecuView.messages.filter((message) => !selectedPeer || message.transmitter === selectedPeer || message.receivers.includes(selectedPeer)).map((message) => (
-                <article className="message-card" key={`${message.sourceId}-${message.name}`}>
-                  <strong>{message.direction} · {message.name}</strong><p>CAN ID 0x{message.canId.toString(16).toUpperCase()} · {message.sourceUri}</p>
-                  <p>{message.signals.map((signal) => signal.name).join(", ") || "No signals for this ECU"}</p>
-                </article>
-              ))}
-              {ecuView.messages.length === 0 && <p>No Tx/Rx messages for this ECU.</p>}
-              <p className="hint-message">E2E, SecOC and diagnostic policy remain unresolved. Generation is unavailable.</p>
-            </>}
+          <section className="review-panel" hidden={activePage !== "review"}><div className="panel-heading"><div><p className="eyebrow">SOURCE DIAGNOSTICS</p><h3>Review & readiness</h3></div><button className="text-button" disabled={!engine} onClick={() => void inspectProject()}><Icon name="folder" size={17}/>Inspect Eclipse project</button></div>
+          <div className="readiness-banner"><Icon name="warning"/><div><strong>Generation is not available yet</strong><p>E2E, SecOC and diagnostic policy are unresolved. ECUC validation and code generation must be implemented and qualified before export.</p></div><span className="status-label">BLOCKED</span></div>
+          {inventory && <div className="inventory-result"><strong>{inventory.eclipseProject ? "Eclipse metadata found" : "Eclipse metadata incomplete"}</strong><p>{inventory.root}</p><span>{inventory.files.length} files inspected ? {inventory.issues.length} issues</span>{inventory.issues.map((issue,index) => <p key={index} className="issue-message">{issue.code} ? {issue.path}</p>)}</div>}
+          {!savedSources.length && <p className="empty-note">Import a DBC source to see its diagnostics here.</p>}
+          {savedSources.map((source) => <article className="review-source" key={source.sourceId}><div><Icon name="files"/><strong>{source.name}</strong><span className="count-pill">{source.channel}</span><span>Revision {source.revision}</span></div><p className="source-path">{source.sourceUri}</p>{source.issues.length === 0 ? <p>No parser issues in the supported subset. This is not full AUTOSAR validation.</p> : source.issues.map((issue,index) => <div className="diagnostic-row" key={index}><span className="status-label">{issue.severity}</span><div><strong>{issue.code}</strong><p>{issue.message}</p><small>Source line {issue.line}</small></div></div>)}</article>)}
           </section>
-
-          <section className="srs-panel">
+          <section className="srs-panel" hidden={activePage !== "project"}>
             <div className="panel-heading">
               <div>
                 <h3>Project definition</h3>
                 <p>Define the ECU target and software requirements alongside imported DBC files.</p>
               </div>
-              <span className="mode-label">SESSION DRAFT</span>
+              <span className="mode-label">PROJECT SETTINGS</span>
             </div>
 
             <div className="srs-section">
@@ -722,7 +681,7 @@ function App() {
               >
                 {isSavingProject ? "Validating and saving…" : "Validate and save definition"}
               </button>
-              {projectDraft && <span>Persisted in the engine's local SQLite database</span>}
+              {projectDraft && <span>Project definition saved</span>}
             </div>
             {projectSaveError && <p className="error-message" role="alert">{projectSaveError}</p>}
             {srsIssues.map((issue, index) => (
@@ -733,40 +692,14 @@ function App() {
           </section>
         </section>
 
-        <aside className="side-column">
-          <section className="info-card">
-            <p className="section-label">PROJECT DEFINITION</p>
-            <h3>{projectDraft?.name ?? "Not defined yet"}</h3>
-            <p>{projectDraft ? "The engine stores the validated project definition in its local SQLite database." : "Create a project definition from DBC previews and software requirements."}</p>
-            {projectDraft?.mcu.partNumber && <p>MCU · {projectDraft.mcu.partNumber}</p>}
-            {projectDraft && <p>{projectDraft.tasks.length} OS tasks · {projectDraft.dcmServices.length} DCM services · {projectDraft.requirements.length} requirements</p>}
-            <div className="project-files">
-              {projectDraft?.dbcSources.length
-                ? projectDraft.dbcSources.map((source) => <span key={source}>{source}</span>)
-                : <span>DBC not imported</span>}
-            </div>
-          </section>
-          <section className="info-card">
-            <p className="section-label">PREVIEW CONTENT</p>
-            <ul className="feature-list">
-              <li>ECU node declarations</li>
-              <li>CAN message IDs and transmitters</li>
-              <li>Signal layout, scaling, and receivers</li>
-              <li>Parser issues with source lines</li>
-            </ul>
-          </section>
-          <section className="notice-card">
-            <strong>SQLite project definition</strong>
-            <p>The validated definition persists in the engine database. DBC preview contents are still session-only and are not written into the Eclipse project.</p>
-          </section>
-        </aside>
+
       </div>
 
       <footer>
         <span>Configuration, generation, and build remain separate workflows.</span>
         <span>{engine ? `Engine ${engine.engineVersion}` : "Engine not connected"}</span>
       </footer>
-    </main>
+    </main></div>
   );
 }
 

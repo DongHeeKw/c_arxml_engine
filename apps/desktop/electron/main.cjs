@@ -126,6 +126,7 @@ function requestEngine(method, params = {}) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    show: process.env.STUDIO_HEADLESS !== "1",
     width: 1440,
     height: 900,
     minWidth: 1000,
@@ -145,7 +146,8 @@ function createWindow() {
   }
 }
 
-ipcMain.handle("engine:request", (_event, method, params) => {
+ipcMain.handle("engine:request", (event, method, params) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid application window");
   if (typeof method !== "string" || !/^[a-zA-Z][a-zA-Z0-9.]*$/.test(method)) {
     throw new Error("Invalid engine method");
   }
