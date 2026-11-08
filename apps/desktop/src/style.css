@@ -1,0 +1,176 @@
+:root {
+  font-family: Inter, "Segoe UI", sans-serif;
+  color: #e5e7eb;
+  background: #0b1020;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 720px;
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse at 75% 4%, rgb(39 71 122 / 22%), transparent 42%),
+    #0b1020;
+}
+
+button {
+  font: inherit;
+}
+
+.shell {
+  width: min(1120px, calc(100% - 96px));
+  min-height: 100vh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: 92px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid #20283a;
+}
+
+.brand-mark {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #344565;
+  border-radius: 12px;
+  color: #9dc0ff;
+  background: #17243b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.eyebrow,
+.card-label {
+  margin: 0;
+  color: #8290a8;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+h1 {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.connection {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #aab4c5;
+  font-size: 12px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #788398;
+}
+
+.status-dot.online {
+  background: #55d6a2;
+  box-shadow: 0 0 12px rgb(85 214 162 / 40%);
+}
+
+.status-dot.offline {
+  background: #fb7185;
+}
+
+.welcome {
+  width: min(660px, 100%);
+  margin: 112px auto 72px;
+  text-align: center;
+}
+
+.welcome .eyebrow {
+  color: #8db4ff;
+}
+
+h2 {
+  margin: 18px 0 14px;
+  font-size: clamp(30px, 4vw, 42px);
+  line-height: 1.14;
+  letter-spacing: -0.035em;
+}
+
+.description {
+  max-width: 520px;
+  margin: 0 auto;
+  color: #9ba8bc;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.welcome button {
+  margin-top: 30px;
+  padding: 11px 15px;
+  border: 1px solid #303a4d;
+  border-radius: 8px;
+  color: #c3ccda;
+  background: #171f30;
+  opacity: 0.7;
+}
+
+.welcome button span {
+  margin-left: 9px;
+  color: #818da2;
+  font-size: 11px;
+}
+
+.status-card {
+  min-height: 86px;
+  padding: 20px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #27334a;
+  border-radius: 12px;
+  background: rgb(18 27 44 / 78%);
+}
+
+.status-message,
+.error-message {
+  margin: 9px 0 0;
+  color: #c5cede;
+  font-size: 13px;
+}
+
+.error-message {
+  color: #fda4af;
+}
+
+.card-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: #9bb9ef;
+  background: #1b2940;
+}
+
+footer {
+  margin-top: auto;
+  padding: 24px 0;
+  display: flex;
+  justify-content: space-between;
+  color: #758198;
+  font-size: 11px;
+}
