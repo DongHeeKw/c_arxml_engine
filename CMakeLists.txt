@@ -5,6 +5,7 @@ project(autosar_dependency_studio VERSION 0.1.0 LANGUAGES CXX)
 add_executable(studio-engine
     engine/src/app/main.cpp
     engine/src/app/json.cpp
+    engine/src/dbc/parser.cpp
 )
 
 target_include_directories(studio-engine PRIVATE engine/include)

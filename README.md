@@ -1,12 +1,12 @@
 # AUTOSAR Dependency-Driven Studio
 
-> **Engineering architecture & verification specification**  
-> Status: design baseline; the C++/Electron process boundary has an initial runnable scaffold.  
+> **Engineering architecture & verification specification**
+> Status: design baseline; the C++/Electron process boundary has an initial runnable scaffold.
 > Scope: multi-DBC import, ECU-centric configuration UX, AUTOSAR ECUC definition/value model, C++20 configuration engine, incremental validation and generation, legacy differential verification.
 
 ## Implementation baseline
 
-The repository currently contains a minimal C++20 JSON-RPC engine and an Electron/React shell. The engine supports `initialize` and `project.status`; DBC parsing, persistence, ARXML, validation and generation are not implemented yet. This scaffold is a process-boundary check, not a claim of AUTOSAR support.
+The repository currently contains a C++20 JSON-RPC engine and an Electron/React shell. The engine supports `initialize`, `project.status`, and a bounded `dbc.parse` preview for `BU_`, `BO_`, and `SG_` declarations. DBC persistence/import transactions, full DBC dialect coverage, ARXML, ECUC validation and generation are not implemented. The parser preview is not a claim of AUTOSAR support.
 
 Build the engine from the repository root, then install and run the desktop app:
 
@@ -21,6 +21,8 @@ npm.cmd run dev
 ```
 
 The engine executable is expected at `build\engine\studio-engine.exe` on Windows. Set `STUDIO_ENGINE_PATH` to override that location. C++ engine logs go to stderr; stdout is reserved for newline-delimited JSON-RPC messages. Electron uses a sandboxed preload bridge with context isolation enabled and Node integration disabled.
+
+`npm.cmd run dev:web` starts the renderer in a browser for layout checks; engine-backed controls require the Electron bridge. The initial `dbc.parse` request accepts DBC text up to 1 MiB and previews `BU_`, `BO_`, and `SG_` declarations. This is not a lossless importer: unsupported DBC constructs are not yet persisted or round-tripped.
 
 ## 0. Executive technical contract
 

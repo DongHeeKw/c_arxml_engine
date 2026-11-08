@@ -95,7 +95,7 @@ h1 {
 
 .welcome {
   width: min(660px, 100%);
-  margin: 112px auto 72px;
+  margin: 68px auto 40px;
   text-align: center;
 }
 
@@ -108,6 +108,12 @@ h2 {
   font-size: clamp(30px, 4vw, 42px);
   line-height: 1.14;
   letter-spacing: -0.035em;
+}
+
+.panel-heading h2 {
+  margin: 7px 0 0;
+  font-size: 19px;
+  letter-spacing: -0.015em;
 }
 
 .description {
@@ -134,6 +140,101 @@ h2 {
   font-size: 11px;
 }
 
+.dbc-panel {
+  margin-top: 20px;
+  padding: 22px;
+  border: 1px solid #27334a;
+  border-radius: 12px;
+  background: rgb(18 27 44 / 78%);
+}
+
+.panel-heading,
+.message-heading,
+.preview-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.primary-button {
+  padding: 9px 13px;
+  border: 1px solid #5077b5;
+  border-radius: 7px;
+  color: #e8f0ff;
+  background: #31568e;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.primary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.editor-label {
+  display: block;
+  margin: 22px 0 8px;
+  color: #9ba8bc;
+  font-size: 12px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 13px;
+  border: 1px solid #303d55;
+  border-radius: 8px;
+  color: #d7e1f1;
+  background: #0c1424;
+  font: 12px/1.6 "Cascadia Code", Consolas, monospace;
+}
+
+.preview-results {
+  margin-top: 18px;
+}
+
+.preview-summary {
+  justify-content: flex-start;
+  gap: 18px;
+  color: #9eb4d5;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.message-card {
+  margin-top: 12px;
+  padding: 15px;
+  border: 1px solid #28364d;
+  border-radius: 8px;
+  background: #121b2c;
+}
+
+.message-heading strong {
+  font-size: 13px;
+}
+
+.message-heading span,
+.message-card p,
+.message-card li {
+  color: #9ba8bc;
+  font-size: 11px;
+}
+
+.message-card p {
+  margin: 9px 0;
+}
+
+.message-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.message-card li + li {
+  margin-top: 5px;
+}
+
 .status-card {
   min-height: 86px;
   padding: 20px 22px;
@@ -154,6 +255,11 @@ h2 {
 
 .error-message {
   color: #fda4af;
+}
+
+.issue-message {
+  color: #f6c177;
+  font-size: 12px;
 }
 
 .card-icon {

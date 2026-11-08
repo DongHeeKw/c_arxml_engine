@@ -1,4 +1,5 @@
 #include "studio/json.hpp"
+#include "studio/dbc.hpp"
 
 #include <iostream>
 #include <string>
@@ -52,6 +53,7 @@ studio::Json handle_request(const studio::Json& request) {
             {"supportedMethods", studio::Json::Array{
                 "initialize",
                 "project.status",
+                "dbc.parse",
             }},
         });
     }
@@ -61,6 +63,23 @@ studio::Json handle_request(const studio::Json& request) {
             {"revision", 0},
             {"status", "No project is open"},
         });
+    }
+    if (method_name == "dbc.parse") {
+        const auto params = object->find("params");
+        const auto* params_object =
+            params == object->end() ? nullptr : params->second.as_object();
+        if (params_object == nullptr) {
+            return make_error(request_id, -32602, "dbc.parse requires an object in params");
+        }
+        const auto text = params_object->find("text");
+        const auto* dbc_text = text == params_object->end() ? nullptr : text->second.as_string();
+        if (dbc_text == nullptr) {
+            return make_error(request_id, -32602, "dbc.parse requires params.text as a string");
+        }
+        if (dbc_text->size() > kMaxRequestBytes) {
+            return make_error(request_id, -32602, "DBC text exceeds the 1 MiB limit");
+        }
+        return make_result(request_id, studio::to_json(studio::parse_dbc(*dbc_text)));
     }
     return make_error(request_id, -32601, "Method not found: " + method_name);
 }
