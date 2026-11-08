@@ -146,7 +146,10 @@ assert.deepEqual(responses[3].result.nodes, ["ECU_A", "ECU_B"]);
 assert.equal(responses[3].result.messages[0].frameId, 291);
 assert.equal(responses[3].result.messages[0].signals[0].byteOrder, "little-endian");
 assert.deepEqual(responses[3].result.messages[0].signals[0].receivers, ["ECU_B"]);
-assert.equal(responses[3].result.issues.length, 0);
+assert.equal(responses[3].result.issues.length, 1);
+assert.equal(responses[3].result.issues[0].code, "DBC_UNSUPPORTED_DECLARATION");
+assert.equal(responses[3].result.issues[0].severity, "warning");
+assert.equal(responses[3].result.issues[0].line, 1);
 assert.equal(responses[4].result.issues[0].code, "DBC_SIGNAL_OUT_OF_FRAME");
 assert.equal(responses[5].result.issues.length, 0);
 assert.equal(responses[6].result.issues[0].code, "DBC_INVALID_MESSAGE_DECLARATION");
@@ -154,7 +157,14 @@ assert.equal(responses[7].error.code, -32602);
 assert.deepEqual(responses[8].result.nodes, ["ECU_A", "ECU_B"]);
 assert.equal(responses[8].result.messages.length, 2);
 assert.equal(responses[8].result.messages[0].name, "VehicleStatus");
-assert.equal(responses[8].result.issues.length, 0);
+assert.deepEqual(
+  responses[8].result.issues.map((issue) => [issue.code, issue.severity, issue.line]),
+  [
+    ["DBC_UNSUPPORTED_DECLARATION", "warning", 1],
+    ["DBC_UNSUPPORTED_DECLARATION", "warning", 8],
+  ],
+);
+assert.equal(responses[8].result.unsupportedLines, 2);
 assert.equal(responses[9].result.files.length, 2);
 assert.equal(responses[9].result.files[0].name, "VehicleNetwork.dbc");
 assert.equal(responses[9].result.files[0].preview.messages.length, 2);
@@ -189,8 +199,8 @@ assert.ok(responses[16].result.changes.messages[0].signals.some((signal) =>
   signal.kind === "modified" &&
   signal.changedFields.includes("factor")));
 assert.equal(responses[16].result.changes.messages[1].kind, "unchanged");
-assert.deepEqual(responses[16].result.beforeIssues, []);
-assert.deepEqual(responses[16].result.afterIssues, []);
+assert.deepEqual(responses[16].result.beforeIssues, responses[8].result.issues);
+assert.deepEqual(responses[16].result.afterIssues, responses[8].result.issues);
 assert.equal(
   responses[16].result.beforeUnsupportedLines,
   responses[16].result.afterUnsupportedLines,

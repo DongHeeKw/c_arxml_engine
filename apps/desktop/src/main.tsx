@@ -384,7 +384,7 @@ function App() {
                     ))}
                     {(item.preview?.unsupportedLines ?? 0) > 0 && (
                       <p className="issue-message">
-                        {item.preview?.unsupportedLines} unrecognized source lines were not interpreted.
+                        {item.preview?.unsupportedLines} unsupported declarations or unrecognized source lines were not interpreted.
                       </p>
                     )}
                   </article>

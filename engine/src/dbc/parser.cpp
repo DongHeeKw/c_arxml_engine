@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
+#include <iterator>
 #include <regex>
 #include <string>
 #include <string_view>
@@ -57,12 +58,21 @@ void add_issue(DbcParseResult& result, std::string code, std::string severity,
     result.issues.push_back({std::move(code), std::move(severity), line, std::move(message)});
 }
 
-bool is_known_non_entity_line(std::string_view line) {
+bool is_namespace_symbol_line(std::string_view line) {
+    static constexpr std::string_view symbols[] = {
+        "NS_DESC_", "CM_", "BA_DEF_", "BA_", "VAL_", "CAT_DEF_", "CAT_",
+        "FILTER", "BA_DEF_DEF_", "EV_DATA_", "ENVVAR_DATA_", "SGTYPE_",
+        "SGTYPE_VAL_", "BA_DEF_SGTYPE_", "BA_SGTYPE_", "SIG_TYPE_REF_",
+        "VAL_TABLE_", "SIG_GROUP_", "SIG_VALTYPE_", "SIGTYPE_VALTYPE_",
+        "BO_TX_BU_", "BA_DEF_REL_", "BA_REL_", "BA_DEF_DEF_REL_",
+        "BU_SG_REL_", "BU_EV_REL_", "BU_BO_REL_", "SG_MUL_VAL_",
+    };
+    return std::find(std::begin(symbols), std::end(symbols), line) != std::end(symbols);
+}
+
+bool is_unsupported_declaration_with_supported_prefix(std::string_view line) {
     static constexpr std::string_view prefixes[] = {
-        "VERSION", "NS_", "BS_", "BU_", "BO_", "SG_", "CM_", "BA_", "VAL_",
-        "CAT_", "FILTER", "EV_", "ENVVAR_DATA_", "SGTYPE_", "SGTYPE_VAL_",
-        "BA_DEF_", "BA_DEF_DEF_", "SIG_TYPE_REF_", "VAL_TABLE_", "SIG_GROUP_",
-        "SIG_VALTYPE_", "BO_TX_BU_", "SG_MUL_VAL_", "SIGTYPE_VALTYPE_",
+        "BO_TX_BU_", "SG_MUL_VAL_", "BU_SG_REL_", "BU_EV_REL_", "BU_BO_REL_",
     };
     for (const auto prefix : prefixes) {
         if (line.starts_with(prefix)) {
@@ -70,6 +80,12 @@ bool is_known_non_entity_line(std::string_view line) {
         }
     }
     return false;
+}
+
+void add_unsupported_declaration(DbcParseResult& result, std::size_t line_number) {
+    ++result.unsupported_lines;
+    add_issue(result, "DBC_UNSUPPORTED_DECLARATION", "warning", line_number,
+              "Declaration or source line is not interpreted or preserved by this parser");
 }
 
 Json string_array(const std::vector<std::string>& values) {
@@ -88,6 +104,7 @@ DbcParseResult parse_dbc(std::string_view input) {
     std::unordered_set<std::string> node_names;
     std::unordered_map<std::uint32_t, std::size_t> frame_ids;
     DbcMessage* current_message = nullptr;
+    bool reading_namespace_symbols = false;
 
     std::size_t line_number = 0;
     while (!input.empty()) {
@@ -104,6 +121,20 @@ DbcParseResult parse_dbc(std::string_view input) {
             line = trim(line);
         }
         if (line.empty() || line.starts_with("//")) {
+            continue;
+        }
+
+        if (line == "NS_ :" || line == "NS_:") {
+            reading_namespace_symbols = true;
+            continue;
+        }
+        if (reading_namespace_symbols && is_namespace_symbol_line(line)) {
+            continue;
+        }
+        reading_namespace_symbols = false;
+
+        if (is_unsupported_declaration_with_supported_prefix(line)) {
+            add_unsupported_declaration(result, line_number);
             continue;
         }
 
@@ -234,9 +265,7 @@ DbcParseResult parse_dbc(std::string_view input) {
             continue;
         }
 
-        if (!is_known_non_entity_line(line)) {
-            ++result.unsupported_lines;
-        }
+        add_unsupported_declaration(result, line_number);
     }
 
     for (const auto& message : result.messages) {

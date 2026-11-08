@@ -52,6 +52,47 @@ void test_dbc_parser() {
     check(parsed.issues.empty(), "valid DBC declarations should not produce issues");
 }
 
+void test_dbc_parser_warns_for_unsupported_declarations() {
+    const auto parsed = studio::parse_dbc(
+        "VERSION \"1.0\"\n"
+        "\n"
+        "NS_ :\n"
+        "    NS_DESC_\n"
+        "    CM_\n"
+        "    BA_DEF_\n"
+        "BS_:\n"
+        "BU_: ECU_A\n"
+        "BO_ 291 Status: 8 ECU_A\n"
+        " SG_ State : 0|1@1+ (1,0) [0|1] \"\" ECU_A\n"
+        "CM_ BO_ 291 \"status comment\";\n"
+        "BA_DEF_ BO_ \"GenMsgCycleTime\" INT 0 65535;\n"
+        "BA_ \"GenMsgCycleTime\" BO_ 291 10;\n"
+        "VAL_ 291 State 0 \"Off\";\n"
+        "SG_MUL_VAL_ 291 State Mux 1-2;\n"
+        "BO_TX_BU_ 291: ECU_A;\n"
+        "BU_SG_REL_ ECU_A ECU_B;\n"
+        "VENDOR_EXT_ 123;\n");
+
+    constexpr std::size_t expected_unsupported_lines = 10;
+    check(parsed.unsupported_lines == expected_unsupported_lines,
+          "unsupported declaration count should exclude NS_ header keyword entries");
+    check(parsed.issues.size() == expected_unsupported_lines,
+          "each unsupported declaration should produce a structured issue");
+    for (const auto& issue : parsed.issues) {
+        check(issue.code == "DBC_UNSUPPORTED_DECLARATION",
+              "unsupported declarations should use the stable unsupported issue code");
+        check(issue.severity == "warning",
+              "unsupported declarations should be warnings rather than parse errors");
+    }
+    if (parsed.issues.size() == expected_unsupported_lines) {
+        const std::vector<std::size_t> expected_lines{1, 7, 11, 12, 13, 14, 15, 16, 17, 18};
+        for (std::size_t index = 0; index < expected_lines.size(); ++index) {
+            check(parsed.issues[index].line == expected_lines[index],
+                  "unsupported declaration warning should retain its source line");
+        }
+    }
+}
+
 void test_dbc_parse_is_deterministic_on_replay() {
     constexpr auto source =
         "BU_: ECU_A ECU_B\n"
@@ -269,6 +310,7 @@ void test_thread_pool_rejects_zero_workers() {
 
 int main() {
     test_dbc_parser();
+    test_dbc_parser_warns_for_unsupported_declarations();
     test_dbc_parse_is_deterministic_on_replay();
     test_dbc_message_diff_tracks_single_message_and_signal_mutations();
     test_dbc_message_diff_is_empty_for_repeated_parse();
