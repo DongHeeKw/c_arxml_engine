@@ -228,21 +228,63 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
             source_files.emplace_back(*file_name, *dbc_text);
         }
 
-        std::vector<std::future<studio::Json>> results;
+        std::vector<std::future<std::pair<std::string, studio::DbcParseResult>>> results;
         results.reserve(source_files.size());
         for (const auto& [name, text] : source_files) {
             results.push_back(workers.submit([name, text] {
-                return studio::Json(studio::Json::Object{
-                    {"name", name},
-                    {"preview", studio::to_json(studio::parse_dbc(text))},
-                });
+                return std::pair{name, studio::parse_dbc(text)};
             }));
         }
 
-        studio::Json::Array batch;
-        batch.reserve(results.size());
-        for (auto& result : results) batch.push_back(result.get());
-        return make_result(request_id, studio::Json(std::move(batch)));
+        std::vector<studio::DbcBatchSource> parsed_files;
+        parsed_files.reserve(results.size());
+        for (auto& result : results) {
+            auto [name, parsed] = result.get();
+            parsed_files.push_back({std::move(name), std::move(parsed)});
+        }
+
+        studio::Json::Array files_json;
+        files_json.reserve(parsed_files.size());
+        for (const auto& source : parsed_files) {
+            files_json.emplace_back(studio::Json::Object{
+                {"name", source.name},
+                {"preview", studio::to_json(source.parsed)},
+            });
+        }
+
+        studio::Json::Array findings_json;
+        const auto findings = studio::analyze_dbc_batch(parsed_files);
+        findings_json.reserve(findings.size());
+        for (const auto& finding : findings) {
+            studio::Json::Array source_files_json;
+            studio::Json::Array source_indices_json;
+            source_files_json.reserve(finding.source_indices.size());
+            source_indices_json.reserve(finding.source_indices.size());
+            for (const auto source_index : finding.source_indices) {
+                source_files_json.emplace_back(parsed_files[source_index].name);
+                source_indices_json.emplace_back(static_cast<double>(source_index + 1));
+            }
+            const auto code = finding.identity == "frameId"
+                ? "DBC_CROSS_FILE_FRAME_ID_SCOPE_UNRESOLVED"
+                : "DBC_CROSS_FILE_MESSAGE_NAME_SCOPE_UNRESOLVED";
+            findings_json.emplace_back(studio::Json::Object{
+                {"code", code},
+                {"identity", finding.identity},
+                {"key", finding.key},
+                {"message",
+                 "This identifier appears in multiple DBC files. Without explicit network "
+                 "assignments, it may be a duplicate definition or a valid identifier on "
+                 "separate CAN networks; no conflict is inferred."},
+                {"networkScope", "unresolved"},
+                {"severity", "warning"},
+                {"sourceFiles", studio::Json(std::move(source_files_json))},
+                {"sourceIndices", studio::Json(std::move(source_indices_json))},
+            });
+        }
+        return make_result(request_id, studio::Json::Object{
+            {"files", studio::Json(std::move(files_json))},
+            {"findings", studio::Json(std::move(findings_json))},
+        });
     }
     return make_error(request_id, -32601, "Method not found: " + method_name);
 }

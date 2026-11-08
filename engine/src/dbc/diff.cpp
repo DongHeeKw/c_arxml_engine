@@ -1,6 +1,8 @@
 #include "studio/dbc.hpp"
 
 #include <algorithm>
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <utility>
 
@@ -126,6 +128,36 @@ Json optional_id_json(const std::optional<std::uint32_t>& value) {
 }
 
 } // namespace
+
+std::vector<DbcBatchFinding> analyze_dbc_batch(
+    const std::vector<DbcBatchSource>& sources) {
+    std::vector<DbcBatchFinding> findings;
+    const auto collect_candidates = [&findings, &sources](const std::string& identity,
+                                                          auto key_function) {
+        std::map<std::string, std::set<std::size_t>> sources_by_key;
+        for (std::size_t source_index = 0; source_index < sources.size(); ++source_index) {
+            for (const auto& message : sources[source_index].parsed.messages) {
+                sources_by_key[key_function(message)].insert(source_index);
+            }
+        }
+        for (const auto& [key, source_indices] : sources_by_key) {
+            if (source_indices.size() < 2) continue;
+            findings.push_back({
+                identity,
+                key,
+                {source_indices.begin(), source_indices.end()},
+            });
+        }
+    };
+
+    collect_candidates("frameId", [](const DbcMessage& message) {
+        return std::to_string(message.frame_id);
+    });
+    collect_candidates("messageName", [](const DbcMessage& message) {
+        return message.name;
+    });
+    return findings;
+}
 
 const char* to_string(DbcChangeKind kind) {
     switch (kind) {

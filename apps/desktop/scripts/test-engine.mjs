@@ -67,7 +67,7 @@ const requests = [
     params: {
       files: [
         { name: "VehicleNetwork.dbc", text: fixtureText },
-        { name: "Small.dbc", text: "BO_ 1 Frame: 1 ECU_A" },
+        { name: "Small.dbc", text: "BO_ 291 OtherStatus: 1 ECU_A" },
       ],
     },
   },
@@ -155,9 +155,19 @@ assert.deepEqual(responses[8].result.nodes, ["ECU_A", "ECU_B"]);
 assert.equal(responses[8].result.messages.length, 2);
 assert.equal(responses[8].result.messages[0].name, "VehicleStatus");
 assert.equal(responses[8].result.issues.length, 0);
-assert.equal(responses[9].result.length, 2);
-assert.equal(responses[9].result[0].name, "VehicleNetwork.dbc");
-assert.equal(responses[9].result[0].preview.messages.length, 2);
+assert.equal(responses[9].result.files.length, 2);
+assert.equal(responses[9].result.files[0].name, "VehicleNetwork.dbc");
+assert.equal(responses[9].result.files[0].preview.messages.length, 2);
+assert.ok(responses[9].result.findings.some((finding) =>
+  finding.code === "DBC_CROSS_FILE_FRAME_ID_SCOPE_UNRESOLVED" &&
+  finding.identity === "frameId" &&
+  finding.key === "291" &&
+  finding.networkScope === "unresolved" &&
+  finding.severity === "warning" &&
+  finding.sourceFiles.includes("VehicleNetwork.dbc") &&
+  finding.sourceFiles.includes("Small.dbc") &&
+  finding.sourceIndices.includes(1) &&
+  finding.sourceIndices.includes(2)));
 assert.equal(responses[10].result.accepted, false);
 assert.ok(responses[10].result.issues.some((issue) => issue.code === "SRS_TASK_PERIOD_REQUIRED"));
 assert.equal(responses[11].error.code, -32602);

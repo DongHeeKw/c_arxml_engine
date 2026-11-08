@@ -60,6 +60,17 @@ type DbcPreview = {
   unsupportedLines: number;
 };
 
+type DbcBatchFinding = {
+  code: string;
+  identity: string;
+  key: string;
+  message: string;
+  networkScope: string;
+  severity: string;
+  sourceFiles: string[];
+  sourceIndices: number[];
+};
+
 type ImportedDbc = {
   name: string;
   preview?: DbcPreview;
@@ -89,6 +100,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [dbcText, setDbcText] = useState(sampleDbc);
   const [imports, setImports] = useState<ImportedDbc[]>([]);
+  const [batchFindings, setBatchFindings] = useState<DbcBatchFinding[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -122,12 +134,17 @@ function App() {
     setImportError(null);
     setIsImporting(true);
     setImports([]);
+    setBatchFindings([]);
     try {
-      const results = await window.studio.request<{ name: string; preview: DbcPreview }[]>(
+      const results = await window.studio.request<{
+        files: { name: string; preview: DbcPreview }[];
+        findings: DbcBatchFinding[];
+      }>(
         "dbc.parseBatch",
         { files },
       );
-      setImports(results.map(({ name, preview }) => ({ name, preview })));
+      setImports(results.files.map(({ name, preview }) => ({ name, preview })));
+      setBatchFindings(results.findings);
     } catch (cause) {
       setImportError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -317,6 +334,23 @@ function App() {
                   <span>{imports.reduce((count, item) => count + (item.preview?.nodes.length ?? 0), 0)} nodes</span>
                   <span>{imports.reduce((count, item) => count + (item.preview?.messages.length ?? 0), 0)} messages</span>
                 </div>
+                {batchFindings.length > 0 && (
+                  <section className="batch-findings" aria-label="Cross-file identity review">
+                    <h4>Possible cross-file overlaps</h4>
+                    <p className="hint-message">
+                      Network assignment is not available yet. Treat these as unresolved review
+                      prompts, not confirmed conflicts.
+                    </p>
+                    {batchFindings.map((finding, index) => (
+                      <p className="issue-message" key={`${finding.code}-${finding.key}-${index}`}>
+                        {finding.severity.toUpperCase()} · {finding.code}: {finding.message}
+                        <br />
+                        {finding.identity} {finding.key} · {finding.sourceFiles.map((name, sourceIndex) =>
+                          `#${finding.sourceIndices[sourceIndex]} ${name}`).join(", ")}
+                      </p>
+                    ))}
+                  </section>
+                )}
                 {imports.map((item) => (
                   <article className="file-card" key={item.name}>
                     <div className="message-heading">

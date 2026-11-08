@@ -176,6 +176,36 @@ void test_dbc_message_diff_does_not_guess_when_name_and_frame_id_change() {
     }
 }
 
+void test_dbc_batch_reports_cross_file_identity_candidates_without_resolving_networks() {
+    const std::vector<studio::DbcBatchSource> sources{
+        {"A.dbc", studio::parse_dbc("BO_ 291 Status: 8 ECU_A\n")},
+        {"B.dbc", studio::parse_dbc("BO_ 291 BodyStatus: 8 ECU_B\n")},
+        {"C.dbc", studio::parse_dbc("BO_ 801 Status: 8 ECU_C\n")},
+        {"D.dbc", studio::parse_dbc("BO_ 291 Status: 8 ECU_D\n")},
+    };
+
+    const auto findings = studio::analyze_dbc_batch(sources);
+    check(findings.size() == 2,
+          "batch analysis should report shared frame IDs and names once per identity");
+    if (findings.size() != 2) return;
+
+    check(findings[0].identity == "frameId" && findings[0].key == "291" &&
+              findings[0].source_indices == std::vector<std::size_t>{0, 1, 3},
+          "frame ID candidates should list distinct source files deterministically");
+    check(findings[1].identity == "messageName" && findings[1].key == "Status" &&
+              findings[1].source_indices == std::vector<std::size_t>{0, 2, 3},
+          "message name candidates should be reported independently from frame IDs");
+}
+
+void test_dbc_batch_does_not_report_identities_present_in_one_source_only() {
+    const std::vector<studio::DbcBatchSource> sources{
+        {"A.dbc", studio::parse_dbc("BO_ 291 Status: 8 ECU_A\nBO_ 291 Duplicate: 8 ECU_A\n")},
+        {"B.dbc", studio::parse_dbc("BO_ 801 OtherNetwork: 8 ECU_B\n")},
+    };
+    check(studio::analyze_dbc_batch(sources).empty(),
+          "batch identity candidates should require the same key in distinct source files");
+}
+
 void test_srs_validation_accepts_valid_configuration() {
     const auto issues = studio::validate_project_definition(valid_project());
     check(issues.empty(), "valid project SRS should pass validation");
@@ -245,6 +275,8 @@ int main() {
     test_dbc_message_diff_uses_frame_id_when_a_name_changes();
     test_dbc_message_diff_ignores_receiver_declaration_order();
     test_dbc_message_diff_does_not_guess_when_name_and_frame_id_change();
+    test_dbc_batch_reports_cross_file_identity_candidates_without_resolving_networks();
+    test_dbc_batch_does_not_report_identities_present_in_one_source_only();
     test_srs_validation_accepts_valid_configuration();
     test_srs_validation_reports_missing_trigger_data_and_duplicate_service();
     test_thread_pool_runs_independent_tasks_concurrently();

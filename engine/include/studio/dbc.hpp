@@ -77,7 +77,20 @@ struct DbcDiffResult {
     std::vector<DbcMessageChange> messages;
 };
 
+struct DbcBatchFinding {
+    std::string identity;
+    std::string key;
+    std::vector<std::size_t> source_indices;
+};
+
+struct DbcBatchSource {
+    std::string name;
+    DbcParseResult parsed;
+};
+
 [[nodiscard]] DbcParseResult parse_dbc(std::string_view input);
+[[nodiscard]] std::vector<DbcBatchFinding> analyze_dbc_batch(
+    const std::vector<DbcBatchSource>& sources);
 [[nodiscard]] DbcDiffResult diff_dbc(
     const DbcParseResult& previous, const DbcParseResult& current);
 [[nodiscard]] Json to_json(const DbcParseResult& result);
