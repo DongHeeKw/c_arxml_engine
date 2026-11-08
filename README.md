@@ -6,7 +6,40 @@
 
 ## Implementation baseline
 
-The repository currently contains a C++20 JSON-RPC engine and an Electron/React shell. The engine supports `initialize`, `project.status`, and a bounded `dbc.parse` preview for `BU_`, `BO_`, and `SG_` declarations. DBC persistence/import transactions, full DBC dialect coverage, ARXML, ECUC validation and generation are not implemented. The parser preview is not a claim of AUTOSAR support.
+The repository currently contains a C++20 JSON-RPC engine and an Electron/React shell. It previews DBC files with `dbc.parseBatch` on a bounded C++ worker pool and validates a session-only project draft through `project.configure`. The draft captures DBC source names, MCU target, OS periodic/event/ISR requirements, DCM services, and traceable software requirements. It is not persisted: SQLite, durable project loading, full DBC dialect coverage, ARXML/ECUC validation, and C/H generation are not implemented. The DBC preview is not a claim of AUTOSAR support.
+
+### Eclipse project compatibility is a core requirement
+
+Electron is the configuration UI; the existing Eclipse project remains the ECU software's development and build unit. The engine must not impose a replacement project format. An Eclipse Project Adapter opens and inspects existing projects in place, preserves their configuration and unknown project-specific files, and writes generated artifacts only to explicitly resolved destinations.
+
+```text
+DBC sources ─────┐
+                 ├── AUTOSAR Studio project definition (DBC + SRS)
+MCU / OS / DCM ──┘                    │
+                                      ▼
+                         C++20 Configuration Engine
+                         bounded worker pool / tests
+                                      │
+                                      ▼
+                         SQLite configuration model
+                         (planned, not implemented)
+                         ├── Eclipse Project Adapter ── .project / .cproject
+          │       ├── Configuration/  (ARXML inputs and ECUC values)
+          │       ├── Generated/       (owned, configured generator outputs)
+          │       ├── Static_Code/     (preserved source)
+          │       ├── CryptoLib/       (preserved library)
+          │       ├── Build/           (project-specific build outputs)
+          │       └── Debug/           (project-specific debug outputs)
+          ├── Native C++ generators (qualified module/output ownership)
+          ├── Legacy Xtend adapter (compatibility and differential baseline)
+          └── Optional SCons/BAT build adapter ── existing build environment
+```
+
+Folder names above describe observed project conventions, not mandatory directories to create or rename. Discover actual spelling, capitalization, and roles from each project and its scripts; in particular, preserve a project's existing directory name rather than normalizing it. `Static_Code` is the intended spelling in this documentation.
+
+The existing SCons/Python and BAT workflows are compatibility targets, not confirmed implementation dependencies for every project. Configuration, code generation, and build are separate operations: the engine owns configuration and validation; generator adapters own explicitly assigned outputs; and an optional build adapter may invoke the existing BAT/SCons workflow without taking over compilation itself. Keep Xtend available initially for unsupported modules and comparisons, then qualify native C++ replacements module-by-module. Never allow two generators to write the same artifact in one run.
+
+Project qualification must verify that `.project` and `.cproject` remain usable in Eclipse; `Configuration/` ARXML resolves against the project's ECUC definitions; generated files land only in the correct existing locations; `Static_Code/`, `CryptoLib/`, and other user-owned content are unchanged; and `Build/`/`Debug/` roles and the real build invocation are established from the project's scripts and observed behavior. `.cproject` alone is not authoritative: inspect whether a project uses CDT managed build, Makefiles, external scripts, BAT wrappers, SCons, or vendor tools such as Tasking. Compare the legacy Xtend pipeline and native output for the same frozen inputs before migrating generator ownership.
 
 Build the engine from the repository root, then install and run the desktop app:
 
@@ -17,12 +50,19 @@ Set-Location apps\desktop
 npm.cmd install
 npm.cmd run build
 npm.cmd run test:engine
+ctest --test-dir ..\..\build -C Debug --output-on-failure
 npm.cmd run dev
 ```
 
 The engine executable is expected at `build\engine\studio-engine.exe` on Windows. Set `STUDIO_ENGINE_PATH` to override that location. C++ engine logs go to stderr; stdout is reserved for newline-delimited JSON-RPC messages. Electron uses a sandboxed preload bridge with context isolation enabled and Node integration disabled.
 
-`npm.cmd run dev:web` starts the renderer in a browser for layout checks; engine-backed controls require the Electron bridge. The initial `dbc.parse` request accepts DBC text up to 1 MiB and previews `BU_`, `BO_`, and `SG_` declarations. This is not a lossless importer: unsupported DBC constructs are not yet persisted or round-tripped.
+`npm.cmd run dev:web` starts the renderer in a browser for layout checks; engine-backed controls require the Electron bridge. In the Electron app, **Add DBC files** opens a multi-file chooser and the drop zone accepts `.dbc` files. `dbc.parseBatch` validates the batch, then parses independent files on the bounded C++ worker pool while preserving input order in its result. The preview covers `BU_`, `BO_`, and `SG_` declarations; it is not a lossless importer and unsupported DBC constructs are not persisted or round-tripped.
+
+The **Project definition** form records the selected MCU identity, OS task trigger (periodic/polling with period, event, or ISR), DCM service IDs, and free-form SRS requirement IDs/text. The engine checks required fields, trigger-specific data, duplicate task/service/requirement IDs, and task period bounds. DBC source names and SRS settings are currently held only in engine memory; restarting the app loses the draft. This is a typed validation/API foundation, not SQLite persistence, an MCU catalog, an AUTOSAR OS configuration generator, or a DCM implementation. Manufacturer-specific MCU catalogs, OS semantics, DCM service parameters/security policy, and project SRS templates need real target-project inputs rather than invented defaults.
+
+Native tests use CTest (`studio-engine-unit`) for DBC parsing, SRS validation and actual concurrent worker execution. The Node JSON-RPC smoke test covers the Electron-facing engine protocol, including batch parsing and project draft configuration. The UI is currently build-checked and manually exercised; automated renderer interaction tests are not yet configured.
+
+The license-safe smoke fixture in [fixtures/synthetic/eclipse_can_project](./fixtures/synthetic/eclipse_can_project) includes `.project`, `.cproject`, representative project folders, a DBC, and illustrative ECUC definition/value ARXML. It is intended for parser and project-adapter development only. It is not a real legacy comparison project, has no Xtend-generated baseline, and its ARXML has not been validated against an AUTOSAR XSD or vendor PDF. Real differential claims require approved, frozen existing Eclipse projects and their exact generator/build outputs; do not substitute synthetic fixtures for those controls.
 
 ## 0. Executive technical contract
 
