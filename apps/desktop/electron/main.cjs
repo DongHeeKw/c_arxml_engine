@@ -1,8 +1,11 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const { readFile, stat } = require("node:fs/promises");
+const { dialog } = require("electron");
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_DBC_FILE_BYTES = 900 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 let mainWindow;
@@ -145,6 +148,33 @@ ipcMain.handle("engine:request", (_event, method, params) => {
     throw new Error("Engine params must be an object");
   }
   return requestEngine(method, params || {});
+});
+
+ipcMain.handle("files:openDbc", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("DBC file selection is only available to the application window");
+  }
+  const selection = await dialog.showOpenDialog(mainWindow, {
+    title: "Import DBC files",
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "CAN database files", extensions: ["dbc"] }],
+  });
+  if (selection.canceled) {
+    return [];
+  }
+
+  const files = [];
+  for (const filePath of selection.filePaths) {
+    const fileInfo = await stat(filePath);
+    if (fileInfo.size > MAX_DBC_FILE_BYTES) {
+      throw new Error(`${path.basename(filePath)} exceeds the 900 KiB import preview limit`);
+    }
+    files.push({
+      name: path.basename(filePath),
+      text: await readFile(filePath, "utf8"),
+    });
+  }
+  return files;
 });
 
 app.whenReady().then(() => {
