@@ -45,6 +45,20 @@ studio::Json issues_to_json(const std::vector<studio::ProjectIssue>& issues) {
     return studio::Json(std::move(result));
 }
 
+studio::Json dbc_issues_to_json(const studio::DbcParseResult& parsed) {
+    studio::Json::Array result;
+    result.reserve(parsed.issues.size());
+    for (const auto& issue : parsed.issues) {
+        result.emplace_back(studio::Json::Object{
+            {"code", issue.code},
+            {"line", static_cast<double>(issue.line)},
+            {"message", issue.message},
+            {"severity", issue.severity},
+        });
+    }
+    return studio::Json(std::move(result));
+}
+
 std::string issues_to_message(const std::vector<studio::ProjectIssue>& issues) {
     if (issues.empty()) return "Invalid project definition";
     return issues.front().path + ": " + issues.front().message;
@@ -81,6 +95,7 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
                 "project.configure",
                 "dbc.parse",
                 "dbc.parseBatch",
+                "dbc.diff",
             }},
         });
     }
@@ -141,6 +156,35 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
             return make_error(request_id, -32602, "DBC text exceeds the 1 MiB limit");
         }
         return make_result(request_id, studio::to_json(studio::parse_dbc(*dbc_text)));
+    }
+    if (method_name == "dbc.diff") {
+        const auto params = object->find("params");
+        const auto* params_object =
+            params == object->end() ? nullptr : params->second.as_object();
+        if (params_object == nullptr) {
+            return make_error(request_id, -32602, "dbc.diff requires an object in params");
+        }
+        const auto before = params_object->find("beforeText");
+        const auto after = params_object->find("afterText");
+        const auto* before_text = before == params_object->end() ? nullptr : before->second.as_string();
+        const auto* after_text = after == params_object->end() ? nullptr : after->second.as_string();
+        if (before_text == nullptr || after_text == nullptr) {
+            return make_error(request_id, -32602,
+                              "dbc.diff requires beforeText and afterText strings");
+        }
+        if (before_text->size() > 900 * 1024 || after_text->size() > 900 * 1024) {
+            return make_error(request_id, -32602, "DBC text exceeds the 900 KiB per-file limit");
+        }
+
+        const auto previous = studio::parse_dbc(*before_text);
+        const auto current = studio::parse_dbc(*after_text);
+        return make_result(request_id, studio::Json::Object{
+            {"afterIssues", dbc_issues_to_json(current)},
+            {"afterUnsupportedLines", static_cast<double>(current.unsupported_lines)},
+            {"beforeIssues", dbc_issues_to_json(previous)},
+            {"beforeUnsupportedLines", static_cast<double>(previous.unsupported_lines)},
+            {"changes", studio::to_json(studio::diff_dbc(previous, current))},
+        });
     }
     if (method_name == "dbc.parseBatch") {
         const auto params = object->find("params");

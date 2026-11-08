@@ -63,6 +63,119 @@ void test_dbc_parse_is_deterministic_on_replay() {
           "replaying a DBC parse should produce identical semantic output");
 }
 
+void test_dbc_message_diff_tracks_single_message_and_signal_mutations() {
+    const auto baseline = studio::parse_dbc(
+        "BU_: ECU_A ECU_B\n"
+        "BO_ 291 VehicleStatus: 8 ECU_A\n"
+        " SG_ Speed : 0|16@1+ (0.1,0) [0|250] \"km/h\" ECU_B\n"
+        "BO_ 292 BodyStatus: 8 ECU_A\n"
+        " SG_ DoorOpen : 0|1@1+ (1,0) [0|1] \"\" ECU_B\n"
+        "BO_ 293 RemovedStatus: 8 ECU_A\n");
+    const auto candidate = studio::parse_dbc(
+        "BU_: ECU_A ECU_B\n"
+        "BO_ 801 VehicleStatus: 8 ECU_A\n"
+        " SG_ Speed : 0|16@1+ (0.01,0) [0|250] \"km/h\" ECU_B\n"
+        "BO_ 292 BodyStatus: 8 ECU_A\n"
+        " SG_ DoorOpen : 0|1@1+ (1,0) [0|1] \"\" ECU_B\n"
+        "BO_ 294 AddedStatus: 8 ECU_A\n");
+
+    const auto diff = studio::diff_dbc(baseline, candidate);
+    check(diff.messages.size() == 4, "message diff should report two stable and two changed identities");
+    if (diff.messages.size() != 4) return;
+
+    const auto& vehicle = diff.messages[0];
+    check(vehicle.kind == studio::DbcChangeKind::modified,
+          "message frame ID and signal factor mutations should modify their named message");
+    check(vehicle.previous_frame_id == 291 && vehicle.current_frame_id == 801,
+          "message identity should remain stable when its frame ID changes");
+    check(vehicle.changed_fields.size() == 2,
+          "message changes should identify frame ID and signal collection changes");
+    check(vehicle.signal_changes.size() == 1 &&
+              vehicle.signal_changes[0].kind == studio::DbcChangeKind::modified,
+          "signal changes should be reported within the owning message");
+    check(vehicle.signal_changes[0].changed_fields == std::vector<std::string>{"factor"},
+          "signal diff should identify the exact changed field");
+
+    check(diff.messages[1].kind == studio::DbcChangeKind::unchanged &&
+              diff.messages[1].message_name == "BodyStatus",
+          "unrelated messages should remain unchanged");
+    check(diff.messages[2].kind == studio::DbcChangeKind::removed &&
+              diff.messages[2].message_name == "RemovedStatus",
+          "removed messages should be identified");
+    check(diff.messages[3].kind == studio::DbcChangeKind::added &&
+              diff.messages[3].message_name == "AddedStatus",
+          "added messages should be identified");
+}
+
+void test_dbc_message_diff_is_empty_for_repeated_parse() {
+    const auto parsed = studio::parse_dbc(
+        "BU_: ECU_A ECU_B\n"
+        "BO_ 291 VehicleStatus: 8 ECU_A\n"
+        " SG_ Speed : 0|16@1+ (0.1,0) [0|250] \"km/h\" ECU_B\n");
+    const auto diff = studio::diff_dbc(parsed, parsed);
+    check(diff.messages.size() == 1 &&
+              diff.messages[0].kind == studio::DbcChangeKind::unchanged,
+          "identical DBC semantic models should produce only unchanged messages");
+}
+
+void test_dbc_message_diff_uses_frame_id_when_a_name_changes() {
+    const auto previous = studio::parse_dbc(
+        "BU_: ECU_A ECU_B\n"
+        "BO_ 291 OldName: 8 ECU_A\n"
+        " SG_ Signal : 0|8@1+ (1,0) [0|255] \"\" ECU_B\n");
+    const auto current = studio::parse_dbc(
+        "// source line shifts must not count as semantic changes\n"
+        "BU_: ECU_A ECU_B\n"
+        "BO_ 291 NewName: 8 ECU_A\n"
+        " SG_ Signal : 0|8@1+ (1,0) [0|255] \"\" ECU_B\n");
+
+    const auto diff = studio::diff_dbc(previous, current);
+    check(diff.messages.size() == 1 &&
+              diff.messages[0].kind == studio::DbcChangeKind::modified,
+          "a uniquely matched frame should report a message rename as modification");
+    if (diff.messages.size() == 1) {
+        check(diff.messages[0].changed_fields == std::vector<std::string>{"name"},
+              "message rename should report only the name property");
+        check(diff.messages[0].signal_changes.size() == 1 &&
+                  diff.messages[0].signal_changes[0].kind == studio::DbcChangeKind::unchanged,
+              "source line shifts should not mark the contained signal as changed");
+    }
+}
+
+void test_dbc_message_diff_ignores_receiver_declaration_order() {
+    const auto previous = studio::parse_dbc(
+        "BU_: ECU_A ECU_B ECU_C\n"
+        "BO_ 291 Status: 8 ECU_A\n"
+        " SG_ Signal : 0|8@1+ (1,0) [0|255] \"\" ECU_B ECU_C\n");
+    const auto current = studio::parse_dbc(
+        "BU_: ECU_A ECU_B ECU_C\n"
+        "BO_ 291 Status: 8 ECU_A\n"
+        " SG_ Signal : 0|8@1+ (1,0) [0|255] \"\" ECU_C ECU_B\n");
+    const auto diff = studio::diff_dbc(previous, current);
+    check(diff.messages.size() == 1 &&
+              diff.messages[0].kind == studio::DbcChangeKind::unchanged,
+          "reordering signal receivers should not create a semantic message change");
+}
+
+void test_dbc_message_diff_does_not_guess_when_name_and_frame_id_change() {
+    const auto previous = studio::parse_dbc(
+        "BU_: ECU_A\n"
+        "BO_ 291 OldName: 8 ECU_A\n");
+    const auto current = studio::parse_dbc(
+        "BU_: ECU_A\n"
+        "BO_ 801 NewName: 8 ECU_A\n");
+    const auto diff = studio::diff_dbc(previous, current);
+    check(diff.messages.size() == 2 &&
+              diff.messages[0].kind == studio::DbcChangeKind::removed &&
+              diff.messages[1].kind == studio::DbcChangeKind::added,
+          "diff should not invent identity when both the name and frame ID change");
+    if (diff.messages.size() == 2) {
+        check(diff.messages[0].match_basis == "none" &&
+                  diff.messages[1].match_basis == "none",
+              "unmatched messages should expose that no stable match basis was available");
+    }
+}
+
 void test_srs_validation_accepts_valid_configuration() {
     const auto issues = studio::validate_project_definition(valid_project());
     check(issues.empty(), "valid project SRS should pass validation");
@@ -127,6 +240,11 @@ void test_thread_pool_rejects_zero_workers() {
 int main() {
     test_dbc_parser();
     test_dbc_parse_is_deterministic_on_replay();
+    test_dbc_message_diff_tracks_single_message_and_signal_mutations();
+    test_dbc_message_diff_is_empty_for_repeated_parse();
+    test_dbc_message_diff_uses_frame_id_when_a_name_changes();
+    test_dbc_message_diff_ignores_receiver_declaration_order();
+    test_dbc_message_diff_does_not_guess_when_name_and_frame_id_change();
     test_srs_validation_accepts_valid_configuration();
     test_srs_validation_reports_missing_trigger_data_and_duplicate_service();
     test_thread_pool_runs_independent_tasks_concurrently();

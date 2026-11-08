@@ -50,7 +50,38 @@ struct DbcParseResult {
     std::size_t unsupported_lines = 0;
 };
 
+enum class DbcChangeKind {
+    added,
+    removed,
+    modified,
+    unchanged,
+};
+
+struct DbcSignalChange {
+    DbcChangeKind kind = DbcChangeKind::unchanged;
+    std::string name;
+    std::vector<std::string> changed_fields;
+};
+
+struct DbcMessageChange {
+    DbcChangeKind kind = DbcChangeKind::unchanged;
+    std::string message_name;
+    std::string match_basis;
+    std::optional<std::uint32_t> previous_frame_id;
+    std::optional<std::uint32_t> current_frame_id;
+    std::vector<std::string> changed_fields;
+    std::vector<DbcSignalChange> signal_changes;
+};
+
+struct DbcDiffResult {
+    std::vector<DbcMessageChange> messages;
+};
+
 [[nodiscard]] DbcParseResult parse_dbc(std::string_view input);
+[[nodiscard]] DbcDiffResult diff_dbc(
+    const DbcParseResult& previous, const DbcParseResult& current);
 [[nodiscard]] Json to_json(const DbcParseResult& result);
+[[nodiscard]] Json to_json(const DbcDiffResult& result);
+[[nodiscard]] const char* to_string(DbcChangeKind kind);
 
 } // namespace studio

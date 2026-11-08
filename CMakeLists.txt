@@ -8,6 +8,7 @@ add_executable(studio-engine
     engine/src/app/main.cpp
     engine/src/app/json.cpp
     engine/src/dbc/parser.cpp
+    engine/src/dbc/diff.cpp
     engine/src/project/project.cpp
 )
 
@@ -37,6 +38,7 @@ if(BUILD_TESTING)
         engine/tests/test_main.cpp
         engine/src/app/json.cpp
         engine/src/dbc/parser.cpp
+        engine/src/dbc/diff.cpp
         engine/src/project/project.cpp
     )
     target_include_directories(studio-engine-tests PRIVATE engine/include)
