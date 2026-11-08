@@ -1,11 +1,15 @@
 #include "studio/dbc.hpp"
 #include "studio/project.hpp"
+#include "studio/project_store.hpp"
 #include "studio/thread_pool.hpp"
+
+#include <sqlite3.h>
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -270,6 +274,109 @@ void test_srs_validation_reports_missing_trigger_data_and_duplicate_service() {
     check(has_issue("SRS_REQUIREMENT_TEXT_REQUIRED"), "SRS requirements should have text");
 }
 
+std::string filesystem_path_as_utf8(const std::filesystem::path& path) {
+    const auto encoded = path.u8string();
+    return {reinterpret_cast<const char*>(encoded.data()), encoded.size()};
+}
+
+std::filesystem::path filesystem_path_from_utf8(const std::string& value) {
+    std::u8string encoded;
+    encoded.reserve(value.size());
+    for (const unsigned char byte : value) {
+        encoded.push_back(static_cast<char8_t>(byte));
+    }
+    return std::filesystem::path(std::move(encoded));
+}
+
+void test_project_store_persists_revisions_and_rolls_back_failed_updates() {
+    const auto database_path = std::filesystem::temp_directory_path() /
+        filesystem_path_from_utf8(
+            "studio-project-store-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+            "-\xE6\xB8\xAC\xE8\xA9\xA6.sqlite3");
+    const auto database_path_utf8 = filesystem_path_as_utf8(database_path);
+    const auto remove_database_files = [&database_path] {
+        std::error_code error;
+        std::filesystem::remove(database_path, error);
+        auto wal_path = database_path;
+        wal_path += "-wal";
+        std::filesystem::remove(wal_path, error);
+        auto shm_path = database_path;
+        shm_path += "-shm";
+        std::filesystem::remove(shm_path, error);
+    };
+
+    try {
+        {
+            studio::ProjectStore store(database_path_utf8);
+            const auto empty = store.load();
+            check(!empty.definition && empty.revision == 0,
+                  "a new project database should start without a configured project");
+            check(store.save(valid_project()) == 1,
+                  "first persisted project should receive revision one");
+        }
+
+        {
+            studio::ProjectStore store(database_path_utf8);
+            const auto restored = store.load();
+            check(restored.definition.has_value() && restored.revision == 1,
+                  "project definition and revision should survive reopening the database");
+            if (restored.definition) {
+                check(studio::serialize_json(studio::to_json(*restored.definition)) ==
+                          studio::serialize_json(studio::to_json(valid_project())),
+                      "reopened project should retain all typed project fields");
+            }
+        }
+
+        sqlite3* database = nullptr;
+        if (sqlite3_open(database_path_utf8.c_str(), &database) != SQLITE_OK) {
+            check(false, "test should reopen the database to install a failure trigger");
+            if (database != nullptr) sqlite3_close(database);
+            remove_database_files();
+            return;
+        }
+        char* trigger_error = nullptr;
+        const int trigger_result = sqlite3_exec(
+            database,
+            "CREATE TRIGGER reject_project_update BEFORE UPDATE ON project_state "
+            "BEGIN SELECT RAISE(ABORT, 'test write rejection'); END",
+            nullptr, nullptr, &trigger_error);
+        if (trigger_result != SQLITE_OK) {
+            check(false, trigger_error == nullptr
+                             ? "test should create the write rejection trigger"
+                             : trigger_error);
+        }
+        sqlite3_free(trigger_error);
+        sqlite3_close(database);
+
+        if (trigger_result == SQLITE_OK) {
+            bool write_failed = false;
+            try {
+                studio::ProjectStore store(database_path_utf8);
+                auto changed = valid_project();
+                changed.name = "ChangedBodyController";
+                static_cast<void>(store.save(changed));
+            } catch (const std::exception&) {
+                write_failed = true;
+            }
+            check(write_failed, "database write failures should be surfaced to the caller");
+
+            studio::ProjectStore store(database_path_utf8);
+            const auto after_failure = store.load();
+            check(after_failure.revision == 1 && after_failure.definition.has_value(),
+                  "failed project updates should not advance the committed revision");
+            if (after_failure.definition) {
+                check(after_failure.definition->name == "BodyController",
+                      "failed project updates should leave the last committed data intact");
+            }
+        }
+    } catch (const std::exception& error) {
+        check(false, error.what());
+    }
+
+    remove_database_files();
+}
+
 void test_thread_pool_runs_independent_tasks_concurrently() {
     studio::ThreadPool pool(2);
     std::mutex mutex;
@@ -321,6 +428,7 @@ int main() {
     test_dbc_batch_does_not_report_identities_present_in_one_source_only();
     test_srs_validation_accepts_valid_configuration();
     test_srs_validation_reports_missing_trigger_data_and_duplicate_service();
+    test_project_store_persists_revisions_and_rolls_back_failed_updates();
     test_thread_pool_runs_independent_tasks_concurrently();
     test_thread_pool_rejects_zero_workers();
     if (failures != 0) {

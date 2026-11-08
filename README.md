@@ -1,12 +1,34 @@
 # AUTOSAR Dependency-Driven Studio
 
 > **Engineering architecture & verification specification**
-> Status: design baseline; the C++/Electron process boundary has an initial runnable scaffold.
+> Status: partial implementation; persisted DBC import, channel scoping, ECU queries and read-only project inventory are available. ECUC/ARXML and generation remain unimplemented.
 > Scope: multi-DBC import, ECU-centric configuration UX, AUTOSAR ECUC definition/value model, C++20 configuration engine, incremental validation and generation, legacy differential verification.
 
 ## Implementation baseline
 
-The repository currently contains a C++20 JSON-RPC engine and an Electron/React shell. It previews DBC files with `dbc.parseBatch` on a bounded C++ worker pool, offers a stateless message/signal comparison through `dbc.diff`, and validates a session-only project draft through `project.configure`. Batch parsing parallelizes independent files and reports possible cross-file message-name/frame-ID overlaps as unresolved warnings; it does not treat them as conflicts because DBC files have not yet been assigned to network/channel scopes. `dbc.diff` reports message-level semantic fields, matching by unique message name first and unique frame ID second. It never guesses a match if both keys change; duplicate keys that cannot be uniquely paired are reported as adds/removes. The comparison is scoped to the two parsed inputs and is not a persisted project identity/change set. The draft captures DBC source names, MCU target, OS periodic/event/ISR requirements, DCM services, and traceable software requirements. It is not persisted: SQLite, durable import/Harmonize, explicit cross-file network identity, dependency invalidation, full DBC dialect coverage, ARXML/ECUC validation, and C/H generation are not implemented. Numeric DBC attributes are compared as parsed lexical values in this first diff implementation, so equivalent decimal spellings may be reported as changes. The DBC preview is not a claim of AUTOSAR support.
+The latest implementation and gate-by-gate evidence are recorded in [the acceptance report](docs/verification/acceptance-2026-11-08.md). The historical description below describes the preceding preview-only slice; the following capabilities supersede its DBC persistence limitations:
+
+- `dbc.import` transactionally stores canonical absolute source identities, SHA-256 digests, original supplied UTF-8 text, parser version, revisions, typed nodes/messages/signals/receivers and source lines in SQLite schema v2. Every import explicitly specifies channel and classic CAN/CAN FD policy. Reimporting identical input preserves source identity and revision. Same-channel frame conflicts reject the entire batch; identical IDs on separate channels are allowed.
+- `dbc.sources` and `network.ecu` query persisted facts after restart. The UI previews files, asks for channel/frame policy, explicitly saves them, and presents ECU-specific Tx/Rx links and messages. Sample text remains preview-only. Unknown nodes are diagnosed and never become resolved network peers.
+- `project.inspect` and the UI's **Inspect Eclipse project** action return a deterministic read-only SHA-256 inventory, preserving actual path spelling. Symlinks/reparse points are reported and not traversed; build wrappers are never executed. This is an inventory adapter, not a complete Eclipse metadata/build adapter.
+- Validation covers 11/29-bit CAN IDs, explicit FD payload lengths, Intel/Motorola occupancy, ordinary/simple-multiplex overlaps, finite nonzero scaling and ordered physical bounds. Attributes, comments, extended multiplexing, vendor records and other unsupported declarations retain their raw source text and diagnostics; their semantics are not interpreted. E2E/SecOC/diagnostic policy remains `UNRESOLVED`, and generation remains blocked.
+
+When CMake is unavailable on a MinGW-equipped host, use this reproducible fallback (Node.js 24 was used for verification):
+
+```powershell
+node scripts/build-engine.mjs --output=build/acceptance
+$env:STUDIO_ENGINE_PATH = (Resolve-Path build/acceptance/studio-engine.exe).Path
+Set-Location apps/desktop
+npm.cmd run test:engine
+npm.cmd run test:acceptance
+npm.cmd run build -- --configLoader native
+```
+
+The fallback builds and executes both C++ test suites. A separate output directory avoids overwriting an engine already running in Electron. Vite's native config loader avoids ancestor-directory scans blocked by some Windows sandboxes. CMake defines a reusable `studio-core` library and both CTest targets; CMake/CTest were unavailable in the inspected host. No admin rights or execution-policy changes are needed for these commands.
+
+### Historical preview-only baseline
+
+The repository currently contains a C++20 JSON-RPC engine and an Electron/React shell. It previews DBC files with `dbc.parseBatch` on a bounded C++ worker pool, offers a stateless message/signal comparison through `dbc.diff`, and validates a project definition through `project.configure`. Project definitions are persisted by the C++ engine in a versioned SQLite database; the Electron application uses its per-user application-data directory, and the standalone engine accepts `STUDIO_DATABASE_PATH` (default: `studio.sqlite3` in its working directory). SQLite migrations and project updates are transactional, and failed writes do not replace the in-memory or persisted definition. This is the first persistence slice only: imported DBC content, source provenance, ECUC values, dependency indexes, and generated artifacts are not yet stored. Batch parsing parallelizes independent files and reports possible cross-file message-name/frame-ID overlaps as unresolved warnings; it does not treat them as conflicts because DBC files have not yet been assigned to network/channel scopes. `dbc.diff` reports message-level semantic fields, matching by unique message name first and unique frame ID second. It never guesses a match if both keys change; duplicate keys that cannot be uniquely paired are reported as adds/removes. The comparison is scoped to the two parsed inputs and is not a persisted project identity/change set. The draft captures DBC source names, MCU target, OS periodic/event/ISR requirements, DCM services, and traceable software requirements. Durable DBC import, explicit cross-file network identity, dependency invalidation, full DBC dialect coverage, ARXML/ECUC validation, and C/H generation are not implemented. Numeric DBC attributes are compared as parsed lexical values in this first diff implementation, so equivalent decimal spellings may be reported as changes. The DBC preview is not a claim of AUTOSAR support.
 
 ### Eclipse project compatibility is a core requirement
 
@@ -22,7 +44,7 @@ MCU / OS / DCM ──┘                    │
                                       │
                                       ▼
                          SQLite configuration model
-                         (planned, not implemented)
+                         (project definition persistence implemented)
                          ├── Eclipse Project Adapter ── .project / .cproject
           │       ├── Configuration/  (ARXML inputs and ECUC values)
           │       ├── Generated/       (owned, configured generator outputs)
@@ -56,9 +78,11 @@ npm.cmd run dev
 
 The engine executable is expected at `build\engine\studio-engine.exe` on Windows. Set `STUDIO_ENGINE_PATH` to override that location. C++ engine logs go to stderr; stdout is reserved for newline-delimited JSON-RPC messages. Electron uses a sandboxed preload bridge with context isolation enabled and Node integration disabled.
 
+The engine uses the vendored SQLite 3.54.1 amalgamation under `third_party/sqlite`. Electron persists the project definition in its per-user application data directory. When running the engine directly, set `STUDIO_DATABASE_PATH` to a writable database file; otherwise it creates `studio.sqlite3` in the current working directory. The v1 schema stores only the validated project definition and revision, not DBC contents or generated outputs.
+
 `npm.cmd run dev:web` starts the renderer in a browser for layout checks; engine-backed controls require the Electron bridge. In the Electron app, **Add DBC files** opens a multi-file chooser and the drop zone accepts `.dbc` files. `dbc.parseBatch` validates the batch, then parses independent files on the bounded C++ worker pool while preserving input order; its response also contains cross-file overlap warnings. Warnings identify repeated frame IDs or message names across selected files and list their source files. They are review prompts only: without explicit network/channel assignments, the engine cannot decide whether the identifiers collide on one bus or are valid on separate buses, and it does not merge or reject the messages. `dbc.diff` is currently an engine/API and test-harness operation; it compares `beforeText`/`afterText`, reports added/removed/modified/unchanged messages, exact changed message fields, nested signal fields, and both parse issue lists. It is not yet surfaced in the renderer as a saved baseline comparison. The preview interprets `BU_`, `BO_`, and `SG_` declarations. Other nonempty source records (except `NS_` section headers and their keyword entries) produce a `DBC_UNSUPPORTED_DECLARATION` warning with a source line and are counted in `unsupportedLines`; those records are not retained, persisted, or round-tripped, so this remains a non-lossless preview rather than a complete importer.
 
-The **Project definition** form records the selected MCU identity, OS task trigger (periodic/polling with period, event, or ISR), DCM service IDs, and free-form SRS requirement IDs/text. The engine checks required fields, trigger-specific data, duplicate task/service/requirement IDs, and task period bounds. DBC source names and SRS settings are currently held only in engine memory; restarting the app loses the draft. This is a typed validation/API foundation, not SQLite persistence, an MCU catalog, an AUTOSAR OS configuration generator, or a DCM implementation. Manufacturer-specific MCU catalogs, OS semantics, DCM service parameters/security policy, and project SRS templates need real target-project inputs rather than invented defaults.
+The **Project definition** form records the selected MCU identity, OS task trigger (periodic/polling with period, event, or ISR), DCM service IDs, and free-form SRS requirement IDs/text. The engine checks required fields, trigger-specific data, duplicate task/service/requirement IDs, and task period bounds. The validated project definition and DBC source names are persisted in SQLite and restored when the engine starts; source DBC contents and preview results are not yet imported into the database. This is not an MCU catalog, an AUTOSAR OS configuration generator, or a DCM implementation. Manufacturer-specific MCU catalogs, OS semantics, DCM service parameters/security policy, and project SRS templates need real target-project inputs rather than invented defaults.
 
 Native tests use CTest (`studio-engine-unit`) for DBC parsing, SRS validation and actual concurrent worker execution. The Node JSON-RPC smoke test covers the Electron-facing engine protocol, including batch parsing and project draft configuration. The UI is currently build-checked and manually exercised; automated renderer interaction tests are not yet configured.
 

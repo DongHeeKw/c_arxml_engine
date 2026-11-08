@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
+#include <cmath>
 #include <iterator>
 #include <regex>
 #include <string>
@@ -99,7 +100,7 @@ Json string_array(const std::vector<std::string>& values) {
 
 } // namespace
 
-DbcParseResult parse_dbc(std::string_view input) {
+DbcParseResult parse_dbc(std::string_view input, bool allow_can_fd) {
     DbcParseResult result;
     std::unordered_set<std::string> node_names;
     std::unordered_map<std::uint32_t, std::size_t> frame_ids;
@@ -260,7 +261,9 @@ DbcParseResult parse_dbc(std::string_view input) {
                               "Signal bit layout exceeds the frame payload");
                 }
             }
-            signal.receivers = split_words(match[12].matched ? match[12].str() : "");
+            auto receiver_text = match[12].matched ? match[12].str() : "";
+            std::replace(receiver_text.begin(),receiver_text.end(),',',' ');
+            signal.receivers = split_words(receiver_text);
             current_message->signals.push_back(std::move(signal));
             continue;
         }
@@ -282,6 +285,86 @@ DbcParseResult parse_dbc(std::string_view input) {
                 }
             }
         }
+    }
+    for (const auto& message : result.messages) {
+        const bool extended = (message.frame_id & 0x80000000u) != 0;
+        const auto can_id = message.frame_id & 0x1fffffffu;
+        if ((message.frame_id & 0x60000000u) != 0 || (!extended && can_id > 0x7ff))
+            add_issue(result, "DBC_INVALID_CAN_ID", "error", message.line,
+                      "Standard IDs must fit 11 bits; extended IDs use bit 31 and 29 ID bits");
+        if (message.dlc_bytes > 8 && !allow_can_fd)
+            add_issue(result, "DBC_CAN_FD_POLICY_REQUIRED", "error", message.line,
+                      "Payloads above 8 bytes require explicit CAN FD channel policy");
+        if (message.dlc_bytes > 8 && allow_can_fd && message.dlc_bytes != 12 &&
+            message.dlc_bytes != 16 && message.dlc_bytes != 20 && message.dlc_bytes != 24 &&
+            message.dlc_bytes != 32 && message.dlc_bytes != 48 && message.dlc_bytes != 64)
+            add_issue(result, "DBC_INVALID_FD_PAYLOAD_LENGTH", "error", message.line,
+                      "CAN FD payload byte length must be 0..8, 12, 16, 20, 24, 32, 48 or 64");
+        std::unordered_set<std::string> names;
+        int selectors = 0;
+        for (const auto& signal : message.signals) if (signal.multiplex == "M") ++selectors;
+        if (selectors > 1)
+            add_issue(result, "DBC_INVALID_MULTIPLEX_SELECTOR", "error", message.line,
+                      "Only one simple multiplex selector is supported");
+        std::unordered_map<std::uint64_t, std::vector<const DbcSignal*>> occupancy;
+        for (const auto& signal : message.signals) {
+            if (!names.insert(signal.name).second)
+                add_issue(result, "DBC_DUPLICATE_SIGNAL_NAME", "error", signal.line,
+                          "Signal name is repeated within its message");
+            const auto number = [](const std::string& text, double& value) {
+                const auto* begin=text.data();
+                if (!text.empty() && text.front()=='+') ++begin;
+                const auto [end, error] = std::from_chars(begin, text.data()+text.size(), value);
+                return error == std::errc{} && end == text.data()+text.size() && std::isfinite(value);
+            };
+            double factor=0, offset=0, minimum=0, maximum=0;
+            if (!number(signal.factor,factor) || !number(signal.offset,offset) || factor==0)
+                add_issue(result, "DBC_INVALID_SCALING", "error", signal.line,
+                          "Factor must be finite and nonzero; offset must be finite");
+            if (!number(signal.minimum,minimum) || !number(signal.maximum,maximum) || minimum>maximum)
+                add_issue(result, "DBC_INVALID_PHYSICAL_RANGE", "error", signal.line,
+                          "Physical bounds must be finite and minimum must not exceed maximum");
+            if (signal.multiplex.ends_with('M') && signal.multiplex != "M")
+                add_issue(result, "DBC_UNSUPPORTED_MULTIPLEX", "error", signal.line,
+                          "Nested multiplexing requires unsupported SG_MUL_VAL_ semantics");
+            if (signal.multiplex.starts_with('m') && selectors != 1)
+                add_issue(result, "DBC_MISSING_MULTIPLEX_SELECTOR", "error", signal.line,
+                          "Multiplexed signal requires one declared selector");
+            std::uint64_t position=signal.start_bit;
+            std::unordered_set<std::size_t> overlaps;
+            for (std::uint32_t bit=0;bit<std::min(signal.bit_length,64u);++bit) {
+                for (const auto* other : occupancy[position]) {
+                    bool exclusive=false;
+                    if (signal.multiplex.starts_with('m') && other->multiplex.starts_with('m') &&
+                        !signal.multiplex.ends_with('M') && !other->multiplex.ends_with('M') && selectors==1) {
+                        std::uint32_t a=0,b=0;
+                        exclusive=parse_unsigned(std::string_view(signal.multiplex).substr(1),a) &&
+                            parse_unsigned(std::string_view(other->multiplex).substr(1),b) && a!=b;
+                    }
+                    if (!exclusive && overlaps.insert(other->line).second)
+                        add_issue(result, "DBC_SIGNAL_OVERLAP", "error", signal.line,
+                                  "Simultaneously active signal overlaps signal on line " + std::to_string(other->line));
+                }
+                occupancy[position].push_back(&signal);
+                position = signal.little_endian ? position+1 : (position%8==0 ? position+15 : position-1);
+            }
+        }
+    }
+    std::unordered_set<std::string> message_names;
+    for (const auto& message : result.messages) {
+        if (!message_names.insert(message.name).second)
+            add_issue(result, "DBC_DUPLICATE_MESSAGE_NAME", "error", message.line,
+                      "Message name is repeated within one source");
+        for (const auto& signal : message.signals) if (signal.receivers.empty())
+            add_issue(result, "DBC_RECEIVER_UNRESOLVED", "warning", signal.line,
+                      "Signal has no receiver; ECU mapping remains unresolved");
+        if (message.transmitter=="Vector__XXX")
+            add_issue(result,"DBC_TRANSMITTER_UNRESOLVED","warning",message.line,
+                      "DBC placeholder does not identify a transmitter ECU");
+        for (const auto& signal : message.signals)
+            if (std::find(signal.receivers.begin(),signal.receivers.end(),"Vector__XXX")!=signal.receivers.end())
+                add_issue(result,"DBC_RECEIVER_UNRESOLVED","warning",signal.line,
+                          "DBC placeholder does not identify a receiver ECU");
     }
     return result;
 }
@@ -310,6 +393,8 @@ Json to_json(const DbcParseResult& result) {
             });
         }
         messages.emplace_back(Json::Object{
+            {"canId", static_cast<double>(message.frame_id & 0x1fffffffu)},
+            {"extended", (message.frame_id & 0x80000000u) != 0},
             {"dlcBytes", static_cast<double>(message.dlc_bytes)},
             {"frameId", static_cast<double>(message.frame_id)},
             {"line", static_cast<double>(message.line)},

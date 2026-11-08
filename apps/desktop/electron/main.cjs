@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const { spawn } = require("node:child_process");
 const path = require("node:path");
-const { readFile, stat } = require("node:fs/promises");
+const { readFile, stat, realpath } = require("node:fs/promises");
 const { dialog } = require("electron");
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -55,6 +55,11 @@ function handleEngineLine(line) {
 
 function startEngine() {
   engine = spawn(engineExecutablePath(), [], {
+    env: {
+      ...process.env,
+      STUDIO_DATABASE_PATH: process.env.STUDIO_DATABASE_PATH ||
+        path.join(app.getPath("userData"), "studio.sqlite3"),
+    },
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -171,10 +176,20 @@ ipcMain.handle("files:openDbc", async (event) => {
     }
     files.push({
       name: path.basename(filePath),
+      sourceUri: await realpath(filePath),
       text: await readFile(filePath, "utf8"),
     });
   }
   return files;
+});
+
+ipcMain.handle("project:inspect", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid application window");
+  const selection = await dialog.showOpenDialog(mainWindow, {
+    title: "Inspect Eclipse project", properties: ["openDirectory"],
+  });
+  if (selection.canceled) return null;
+  return requestEngine("project.inspect", { root: await realpath(selection.filePaths[0]) });
 });
 
 app.whenReady().then(() => {

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -8,6 +10,9 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const executableName = process.platform === "win32" ? "studio-engine.exe" : "studio-engine";
 const executable = process.env.STUDIO_ENGINE_PATH ||
   path.resolve(scriptDirectory, "../../../build/engine", executableName);
+const databaseDirectory = mkdtempSync(path.join(os.tmpdir(), "studio-engine-test-"));
+process.on("exit", () => rmSync(databaseDirectory, { recursive: true, force: true }));
+const databasePath = path.join(databaseDirectory, "studio.sqlite3");
 const fixturePath = path.resolve(
   scriptDirectory,
   "../../../fixtures/synthetic/eclipse_can_project/VehicleNetwork.dbc",
@@ -126,19 +131,54 @@ const requests = [
     method: "dbc.diff",
     params: { beforeText: fixtureText, afterText: changedFixtureText },
   },
+  {
+    jsonrpc: "2.0",
+    id: 18,
+    method: "dbc.import",
+    params: {
+      files: [{
+        sourceUri: fixturePath,
+        name: "VehicleNetwork.dbc",
+        channel: "CAN0",
+        frameFormat: "classic",
+        text: fixtureText,
+      }],
+    },
+  },
+  { jsonrpc: "2.0", id: 19, method: "dbc.sources", params: {} },
+  {
+    jsonrpc: "2.0",
+    id: 20,
+    method: "network.ecu",
+    params: { channel: "CAN0", ecu: "ECU_A" },
+  },
+  {
+    jsonrpc: "2.0",
+    id: 21,
+    method: "project.inspect",
+    params: { root: path.dirname(fixturePath) },
+  },
 ];
 const input = `${requests.map((request) => JSON.stringify(request)).join("\n")}\n{invalid\n`;
-const processResult = spawnSync(executable, [], { input, encoding: "utf8" });
+const processResult = spawnSync(executable, [], {
+  env: { ...process.env, STUDIO_DATABASE_PATH: databasePath },
+  input,
+  encoding: "utf8",
+});
 
 assert.equal(processResult.error, undefined, processResult.error?.message);
 assert.equal(processResult.status, 0, processResult.stderr);
 const responses = processResult.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line));
-assert.equal(responses.length, 18);
+assert.equal(responses.length, 22);
 assert.equal(responses[0].result.engineVersion, "0.1.0");
 assert.equal(responses[0].result.protocolVersion, "1.0");
 assert.ok(responses[0].result.supportedMethods.includes("dbc.parseBatch"));
 assert.ok(responses[0].result.supportedMethods.includes("project.configure"));
 assert.ok(responses[0].result.supportedMethods.includes("dbc.diff"));
+assert.ok(responses[0].result.supportedMethods.includes("dbc.import"));
+assert.ok(responses[0].result.supportedMethods.includes("dbc.sources"));
+assert.ok(responses[0].result.supportedMethods.includes("network.ecu"));
+assert.ok(responses[0].result.supportedMethods.includes("project.inspect"));
 assert.equal(responses[1].result.projectOpen, false);
 assert.equal(responses[2].id, "한글😀");
 assert.equal(responses[2].error.code, -32601);
@@ -187,7 +227,7 @@ assert.equal(responses[12].result.project.dcmServices[0].serviceId, 34);
 assert.equal(responses[13].result.accepted, false);
 assert.equal(responses[14].result.projectOpen, true);
 assert.equal(responses[14].result.revision, 1);
-assert.equal(responses[14].result.persistence, "in-memory-draft");
+assert.equal(responses[14].result.persistence, "sqlite");
 assert.equal(responses[14].result.definition.name, "BodyController");
 assert.deepEqual(responses[15].result, responses[8].result);
 assert.equal(responses[16].result.changes.messages[0].kind, "modified");
@@ -205,6 +245,44 @@ assert.equal(
   responses[16].result.beforeUnsupportedLines,
   responses[16].result.afterUnsupportedLines,
 );
-assert.equal(responses[17].error.code, -32700);
+assert.equal(responses[17].result.accepted, true);
+assert.equal(responses[17].result.files[0].changed, true);
+assert.equal(responses[17].result.files[0].generationBlocked, true);
+assert.equal(responses[18].result.files.length, 1);
+assert.equal(responses[18].result.files[0].name, "VehicleNetwork.dbc");
+assert.equal(responses[19].result.messages.length, 2);
+assert.deepEqual(
+  responses[19].result.messages.map((message) => message.direction).sort(),
+  ["Rx", "Tx"],
+);
+assert.equal(responses[20].result.readOnly, true);
+assert.equal(responses[20].result.eclipseProject, true);
+assert.equal(responses[20].result.buildExecuted, false);
+assert.equal(responses[21].error.code, -32700);
+
+const restartedProcess = spawnSync(
+  executable,
+  [],
+  {
+    env: { ...process.env, STUDIO_DATABASE_PATH: databasePath },
+    input: [
+      { jsonrpc: "2.0", id: 1, method: "project.status", params: {} },
+      { jsonrpc: "2.0", id: 2, method: "dbc.sources", params: {} },
+      { jsonrpc: "2.0", id: 3, method: "network.ecu", params: { channel: "CAN0", ecu: "ECU_A" } },
+    ].map((request) => JSON.stringify(request)).join("\n") + "\n",
+    encoding: "utf8",
+  },
+);
+assert.equal(restartedProcess.error, undefined, restartedProcess.error?.message);
+assert.equal(restartedProcess.status, 0, restartedProcess.stderr);
+const restartedResponses = restartedProcess.stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line));
+assert.equal(restartedResponses.length, 3);
+const restartedStatus = restartedResponses[0].result;
+assert.equal(restartedStatus.projectOpen, true);
+assert.equal(restartedStatus.persistence, "sqlite");
+assert.equal(restartedStatus.revision, 1);
+assert.equal(restartedStatus.definition.name, "BodyController");
+assert.equal(restartedResponses[1].result.files.length, 1);
+assert.equal(restartedResponses[2].result.messages.length, 2);
 
 console.log("Engine JSON-RPC smoke tests passed.");

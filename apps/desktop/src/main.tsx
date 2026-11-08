@@ -86,6 +86,18 @@ type ProjectDefinition = {
   requirements: RequirementDraft[];
 };
 
+type ProjectStatus = {
+  definition?: ProjectDefinition;
+  persistence: string;
+  projectOpen: boolean;
+  revision: number;
+};
+
+type SourceInput = { name: string; text: string; sourceUri?: string };
+type SavedSource = { sourceId: number; sourceUri: string; name: string; channel: string; nodes: string[]; revision: number };
+type EcuView = { messages: { sourceId: number; sourceUri: string; name: string; canId: number; direction: string;
+  transmitter: string; transmitterDeclared: boolean; receivers: string[]; signals: { name: string; line: number }[] }[] };
+
 const sampleDbc = `VERSION "1.0"
 
 BU_: ECU_A ECU_B
@@ -100,6 +112,17 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [dbcText, setDbcText] = useState(sampleDbc);
   const [imports, setImports] = useState<ImportedDbc[]>([]);
+  const [pendingSources, setPendingSources] = useState<SourceInput[]>([]);
+  const [channelName, setChannelName] = useState("");
+  const [frameFormat, setFrameFormat] = useState("classic");
+  const [savedSources, setSavedSources] = useState<SavedSource[]>([]);
+  const [selectedChannel, setSelectedChannel] = useState("");
+  const [selectedEcu, setSelectedEcu] = useState("");
+  const [selectedPeer, setSelectedPeer] = useState("");
+  const [ecuView, setEcuView] = useState<EcuView | null>(null);
+  const [networkError, setNetworkError] = useState<string | null>(null);
+  const [inventory, setInventory] = useState<Awaited<ReturnType<Window["studio"]["inspectProject"]>>>(null);
+  const [isSavingSources, setIsSavingSources] = useState(false);
   const [batchFindings, setBatchFindings] = useState<DbcBatchFinding[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -122,18 +145,82 @@ function App() {
       setError("Desktop bridge unavailable. Start the app with npm run dev.");
       return;
     }
-    window.studio.request<EngineStatus>("initialize")
-      .then(setEngine)
-      .catch((cause: unknown) => {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      });
+    async function initialize() {
+      const status = await window.studio.request<EngineStatus>("initialize");
+      setEngine(status);
+      const sources = await window.studio.request<{ files: SavedSource[] }>("dbc.sources");
+      setSavedSources(sources.files);
+      const projectStatus = await window.studio.request<ProjectStatus>("project.status");
+      const definition = projectStatus.definition;
+      if (!definition) return;
+
+      setProjectDraft(definition);
+      setProjectName(definition.name);
+      setMcuVendor(definition.mcu.vendor);
+      setMcuFamily(definition.mcu.family);
+      setMcuPartNumber(definition.mcu.partNumber);
+      setTasks(definition.tasks.map((task) => ({
+        name: task.name,
+        trigger: task.trigger,
+        periodMs: task.periodMs?.toString() ?? "",
+        event: task.event,
+        isrVector: task.isrVector,
+      })));
+      setDcmServices(definition.dcmServices.map((service) => ({
+        serviceId: service.serviceId.toString(16).padStart(2, "0").toUpperCase(),
+        name: service.name,
+        enabled: service.enabled,
+      })));
+      setRequirements(definition.requirements);
+    }
+
+    void initialize().catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    });
   }, []);
 
-  async function parseFiles(files: { name: string; text: string }[]) {
+  useEffect(() => {
+    let current = true;
+    setEcuView(null);
+    setNetworkError(null);
+    setSelectedPeer("");
+    if (selectedChannel && selectedEcu) {
+      void window.studio.request<EcuView>("network.ecu", { channel: selectedChannel, ecu: selectedEcu })
+        .then((view) => { if (current) setEcuView(view); })
+        .catch((cause: unknown) => { if (current) setNetworkError(cause instanceof Error ? cause.message : String(cause)); });
+    }
+    return () => { current = false; };
+  }, [selectedChannel, selectedEcu, savedSources]);
+
+  async function saveSources() {
+    setIsSavingSources(true);
+    setImportError(null);
+    try {
+      const result = await window.studio.request<{ accepted: boolean; issues: { code: string; path: string; message: string }[] }>("dbc.import", {
+        files: pendingSources.map((file) => ({ ...file, channel: channelName.trim(), frameFormat })),
+      });
+      if (!result.accepted) throw new Error(result.issues.map((issue) => `${issue.code}: ${issue.path} ${issue.message}`).join("\n"));
+      const sources = await window.studio.request<{ files: SavedSource[] }>("dbc.sources");
+      setSavedSources(sources.files);
+      setPendingSources([]);
+      setSelectedChannel(channelName.trim());
+      setSelectedEcu("");
+    } catch (cause) {
+      setImportError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setIsSavingSources(false); }
+  }
+
+  async function inspectProject() {
+    try { setInventory(await window.studio.inspectProject()); }
+    catch (cause) { setImportError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+
+  async function parseFiles(files: SourceInput[], chosenFormat = frameFormat) {
     if (files.length === 0) return;
     setImportError(null);
     setIsImporting(true);
     setImports([]);
+    setPendingSources([]);
     setBatchFindings([]);
     try {
       const results = await window.studio.request<{
@@ -141,10 +228,11 @@ function App() {
         findings: DbcBatchFinding[];
       }>(
         "dbc.parseBatch",
-        { files },
+        { files, frameFormat: chosenFormat },
       );
       setImports(results.files.map(({ name, preview }) => ({ name, preview })));
       setBatchFindings(results.findings);
+      setPendingSources(files);
     } catch (cause) {
       setImportError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -171,7 +259,10 @@ function App() {
       }>("project.configure", {
         name: projectName,
         mcu: { vendor: mcuVendor, family: mcuFamily, partNumber: mcuPartNumber },
-        dbcSources: imports.filter((item) => item.preview).map((item) => item.name),
+        dbcSources: [...new Set([
+          ...(projectDraft?.dbcSources ?? []),
+          ...imports.filter((item) => item.preview).map((item) => item.name),
+        ])],
         tasks: tasks.map((task) => ({
           name: task.name,
           trigger: task.trigger,
@@ -234,7 +325,7 @@ function App() {
         if (file.size > 900 * 1024) {
           throw new Error(`${file.name} exceeds the 900 KiB import preview limit`);
         }
-        return { name: file.name, text: await file.text() };
+        return { name: file.name, text: await file.text(), sourceUri: window.studio?.pathForFile?.(file) || undefined };
       }));
       await parseFiles(files);
     } catch (cause) {
@@ -277,12 +368,12 @@ function App() {
             <div className="panel-heading">
               <div>
                 <h3>DBC files</h3>
-                <p>One or more files · preview before project import</p>
+                <p>Preview files, assign a channel, then save the network.</p>
               </div>
               <button
                 type="button"
                 className="primary-button"
-                disabled={!engine?.supportedMethods.includes("dbc.parseBatch") || isImporting}
+                disabled={!engine?.supportedMethods.includes("dbc.parseBatch") || isImporting || isSavingSources}
                 onClick={() => void chooseDbcFiles()}
               >
                 {isImporting ? "Checking files…" : "Add DBC files"}
@@ -321,6 +412,25 @@ function App() {
               </div>
             </div>
             {importError && <p className="error-message" role="alert">{importError}</p>}
+            {pendingSources.length > 0 && (
+              <div className="srs-section">
+                <label className="form-field"><span>CAN channel for these files</span>
+                  <input value={channelName} onChange={(event) => setChannelName(event.target.value)} placeholder="Enter the project's channel name" />
+                </label>
+                <label className="form-field"><span>Frame format</span>
+                  <select value={frameFormat} disabled={isSavingSources} onChange={(event) => {
+                    const value = event.target.value;
+                    setFrameFormat(value);
+                    void parseFiles(pendingSources, value);
+                  }}>
+                    <option value="classic">Classic CAN</option><option value="fd">CAN FD</option>
+                  </select>
+                </label>
+                <button type="button" className="primary-button" disabled={isSavingSources || !channelName.trim() || pendingSources.some((file) => !file.sourceUri)}
+                  onClick={() => void saveSources()}>{isSavingSources ? "Saving…" : "Save network sources"}</button>
+                {pendingSources.some((file) => !file.sourceUri) && <p className="hint-message">Use Add DBC files to save files with their original locations. Sample text is preview only.</p>}
+              </div>
+            )}
             {!engine && (
               <p className="hint-message">
                 {error ?? "Waiting for the local C++ engine before files can be parsed."}
@@ -352,7 +462,7 @@ function App() {
                   </section>
                 )}
                 {imports.map((item) => (
-                  <article className="file-card" key={item.name}>
+                  <article className="file-card" key={`${item.name}-${imports.indexOf(item)}`}>
                     <div className="message-heading">
                       <strong>{item.name}</strong>
                       {item.preview && (
@@ -409,6 +519,47 @@ function App() {
                 Preview sample
               </button>
             </details>
+          </section>
+
+          <section className="dbc-panel" aria-label="Saved ECU network">
+            <div className="panel-heading"><h3>Saved ECU network</h3>
+              <button type="button" className="text-button" disabled={!engine} onClick={() => void inspectProject()}>Inspect Eclipse project</button>
+            </div>
+            {inventory && <p>{inventory.eclipseProject ? "Eclipse metadata found" : "Eclipse metadata incomplete"} · {inventory.files.length} files inspected · {inventory.issues.length} issues · {inventory.root}</p>}
+            <p className="hint-message">{savedSources.length} saved sources. Select a channel and ECU to inspect its communication links.</p>
+            <div className="form-grid">
+              <label className="form-field"><span>Channel</span>
+                <select value={selectedChannel} onChange={(event) => { setSelectedChannel(event.target.value); setSelectedEcu(""); }}>
+                  <option value="">Choose a channel</option>
+                  {[...new Set(savedSources.map((file) => file.channel))].sort().map((channel) => <option key={channel}>{channel}</option>)}
+                </select>
+              </label>
+              <label className="form-field"><span>Target ECU</span>
+                <select value={selectedEcu} onChange={(event) => setSelectedEcu(event.target.value)}>
+                  <option value="">Choose an ECU</option>
+                  {[...new Set(savedSources.filter((file) => file.channel === selectedChannel).flatMap((file) => file.nodes))]
+                    .filter((node) => node !== "Vector__XXX").sort().map((node) => <option key={node}>{node}</option>)}
+                </select>
+              </label>
+            </div>
+            {networkError && <p role="alert" className="error-message">{networkError}</p>}
+            {ecuView && <>
+              <div className="network-links" aria-label="ECU communication links">
+                <button type="button" className="text-button" aria-pressed={!selectedPeer} onClick={() => setSelectedPeer("")}>All links for {selectedEcu}</button>
+                {[...new Set(ecuView.messages.flatMap((message) => [...(message.transmitterDeclared ? [message.transmitter] : []), ...message.receivers]))]
+                  .filter((peer) => peer !== selectedEcu && peer !== "Vector__XXX").sort().map((peer) => (
+                    <button type="button" className="text-button" aria-pressed={selectedPeer === peer} key={peer} onClick={() => setSelectedPeer(peer)}>{selectedEcu} ↔ {peer}</button>
+                  ))}
+              </div>
+              {ecuView.messages.filter((message) => !selectedPeer || message.transmitter === selectedPeer || message.receivers.includes(selectedPeer)).map((message) => (
+                <article className="message-card" key={`${message.sourceId}-${message.name}`}>
+                  <strong>{message.direction} · {message.name}</strong><p>CAN ID 0x{message.canId.toString(16).toUpperCase()} · {message.sourceUri}</p>
+                  <p>{message.signals.map((signal) => signal.name).join(", ") || "No signals for this ECU"}</p>
+                </article>
+              ))}
+              {ecuView.messages.length === 0 && <p>No Tx/Rx messages for this ECU.</p>}
+              <p className="hint-message">E2E, SecOC and diagnostic policy remain unresolved. Generation is unavailable.</p>
+            </>}
           </section>
 
           <section className="srs-panel">
@@ -569,9 +720,9 @@ function App() {
                 disabled={!engine?.supportedMethods.includes("project.configure") || isSavingProject}
                 onClick={() => void configureProject()}
               >
-                {isSavingProject ? "Validating…" : "Validate project definition"}
+                {isSavingProject ? "Validating and saving…" : "Validate and save definition"}
               </button>
-              {projectDraft && <span>Validated in this engine session</span>}
+              {projectDraft && <span>Persisted in the engine's local SQLite database</span>}
             </div>
             {projectSaveError && <p className="error-message" role="alert">{projectSaveError}</p>}
             {srsIssues.map((issue, index) => (
@@ -586,7 +737,7 @@ function App() {
           <section className="info-card">
             <p className="section-label">PROJECT DEFINITION</p>
             <h3>{projectDraft?.name ?? "Not defined yet"}</h3>
-            <p>{projectDraft ? "The current session has a validated DBC and SRS draft." : "Create a session draft from DBC previews and project software requirements."}</p>
+            <p>{projectDraft ? "The engine stores the validated project definition in its local SQLite database." : "Create a project definition from DBC previews and software requirements."}</p>
             {projectDraft?.mcu.partNumber && <p>MCU · {projectDraft.mcu.partNumber}</p>}
             {projectDraft && <p>{projectDraft.tasks.length} OS tasks · {projectDraft.dcmServices.length} DCM services · {projectDraft.requirements.length} requirements</p>}
             <div className="project-files">
@@ -605,8 +756,8 @@ function App() {
             </ul>
           </section>
           <section className="notice-card">
-            <strong>Session draft only</strong>
-            <p>DBC previews and SRS settings are not persisted to SQLite or an Eclipse project yet.</p>
+            <strong>SQLite project definition</strong>
+            <p>The validated definition persists in the engine database. DBC preview contents are still session-only and are not written into the Eclipse project.</p>
           </section>
         </aside>
       </div>

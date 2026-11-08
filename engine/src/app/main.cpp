@@ -1,14 +1,25 @@
 #include "studio/json.hpp"
 #include "studio/dbc.hpp"
 #include "studio/project.hpp"
+#include "studio/project_store.hpp"
+#include "studio/project_inventory.hpp"
 #include "studio/thread_pool.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -64,7 +75,32 @@ std::string issues_to_message(const std::vector<studio::ProjectIssue>& issues) {
     return issues.front().path + ": " + issues.front().message;
 }
 
+std::string database_path_from_environment() {
+#ifdef _WIN32
+    const wchar_t* configured = _wgetenv(L"STUDIO_DATABASE_PATH");
+    if (configured == nullptr || configured[0] == L'\0') return "studio.sqlite3";
+    const int required = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, configured, -1, nullptr, 0, nullptr, nullptr);
+    if (required == 0) {
+        throw std::runtime_error("STUDIO_DATABASE_PATH is not valid Unicode");
+    }
+    std::string path(static_cast<std::size_t>(required), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, configured, -1,
+                            path.data(), required, nullptr, nullptr) == 0) {
+        throw std::runtime_error("Could not encode STUDIO_DATABASE_PATH as UTF-8");
+    }
+    path.pop_back();
+    return path;
+#else
+    const char* configured = std::getenv("STUDIO_DATABASE_PATH");
+    return configured == nullptr || configured[0] == '\0'
+        ? "studio.sqlite3"
+        : configured;
+#endif
+}
+
 studio::Json handle_request(const studio::Json& request, EngineState& state,
+                            studio::ProjectStore& project_store,
                             studio::ThreadPool& workers) {
     const auto* object = request.as_object();
     if (object == nullptr) {
@@ -96,12 +132,16 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
                 "dbc.parse",
                 "dbc.parseBatch",
                 "dbc.diff",
+                "dbc.import",
+                "dbc.sources",
+                "network.ecu",
+                "project.inspect",
             }},
         });
     }
     if (method_name == "project.status") {
         studio::Json::Object status{
-            {"persistence", "in-memory-draft"},
+            {"persistence", "sqlite"},
             {"projectOpen", state.project.has_value()},
             {"revision", static_cast<double>(state.project_revision)},
             {"status", state.project ? "Project draft configured" : "No project is configured"},
@@ -131,14 +171,62 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
                 });
             }
         }
+        std::uint64_t revision = 0;
+        try {
+            revision = project_store.save(project);
+        } catch (const std::exception& error) {
+            return make_error(request_id, -32603,
+                              "Could not persist project definition: " +
+                                  std::string(error.what()));
+        }
         state.project = std::move(project);
-        ++state.project_revision;
+        state.project_revision = revision;
         return make_result(request_id, studio::Json::Object{
             {"accepted", true},
             {"issues", issues_to_json(issues)},
             {"project", studio::to_json(*state.project)},
             {"revision", static_cast<double>(state.project_revision)},
         });
+    }
+    if (method_name == "dbc.sources") return make_result(request_id,project_store.dbc_sources());
+    if (method_name == "dbc.import" || method_name == "network.ecu" || method_name == "project.inspect") {
+        try {
+            const auto params=object->find("params");
+            const auto* values=params==object->end() ? nullptr : params->second.as_object();
+            if (!values) throw std::invalid_argument("Method requires an object in params");
+            const auto string_field=[](const studio::Json::Object& item, const char* key) {
+                const auto found=item.find(key);
+                if (found==item.end() || !found->second.as_string() || found->second.as_string()->empty())
+                    throw std::invalid_argument(std::string("Expected nonempty string: ")+key);
+                return *found->second.as_string();
+            };
+            if (method_name=="project.inspect")
+                return make_result(request_id,studio::inspect_eclipse_project(string_field(*values,"root")));
+            if (method_name=="network.ecu")
+                return make_result(request_id,project_store.ecu_view(string_field(*values,"channel"),string_field(*values,"ecu")));
+            const auto files=values->find("files");
+            if (files==values->end() || !files->second.as_array())
+                throw std::invalid_argument("dbc.import requires a files array");
+            std::vector<studio::DbcImport> sources;
+            for (const auto& file : *files->second.as_array()) {
+                const auto* item=file.as_object();
+                if (!item) throw std::invalid_argument("Source entries must be objects");
+                const auto format=string_field(*item,"frameFormat");
+                if (format!="classic" && format!="fd")
+                    throw std::invalid_argument("frameFormat must explicitly be classic or fd");
+                // An empty source is a valid empty DBC, so text differs from identity fields.
+                const auto text=item->find("text");
+                if (text==item->end() || !text->second.as_string())
+                    throw std::invalid_argument("Expected source text string");
+                sources.push_back({string_field(*item,"sourceUri"),string_field(*item,"name"),
+                    string_field(*item,"channel"),*text->second.as_string(),format=="fd"});
+            }
+            return make_result(request_id,project_store.import_dbcs(sources));
+        } catch (const std::invalid_argument& error) {
+            return make_error(request_id,-32602,error.what());
+        } catch (const std::exception& error) {
+            return make_error(request_id,-32603,error.what());
+        }
     }
     if (method_name == "dbc.parse") {
         const auto params = object->find("params");
@@ -205,6 +293,15 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
                               "dbc.parseBatch supports at most 32 files per request");
         }
 
+        bool allow_can_fd=false;
+        const auto format=params_object->find("frameFormat");
+        if (format!=params_object->end()) {
+            const auto* value=format->second.as_string();
+            if (!value || (*value!="classic" && *value!="fd"))
+                return make_error(request_id,-32602,"frameFormat must be classic or fd");
+            allow_can_fd=*value=="fd";
+        }
+
         std::vector<std::pair<std::string, std::string>> source_files;
         source_files.reserve(files->size());
         for (std::size_t index = 0; index < files->size(); ++index) {
@@ -231,8 +328,8 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
         std::vector<std::future<std::pair<std::string, studio::DbcParseResult>>> results;
         results.reserve(source_files.size());
         for (const auto& [name, text] : source_files) {
-            results.push_back(workers.submit([name, text] {
-                return std::pair{name, studio::parse_dbc(text)};
+            results.push_back(workers.submit([name, text, allow_can_fd] {
+                return std::pair{name, studio::parse_dbc(text,allow_can_fd)};
             }));
         }
 
@@ -292,30 +389,46 @@ studio::Json handle_request(const studio::Json& request, EngineState& state,
 } // namespace
 
 int main() {
-    const auto hardware_threads = std::thread::hardware_concurrency();
-    const auto worker_count = std::clamp(
-        hardware_threads == 0 ? 2u : hardware_threads, 2u, 8u);
-    studio::ThreadPool workers(worker_count);
-    EngineState state;
+    try {
+        studio::ProjectStore project_store(database_path_from_environment());
+        const auto stored_project = project_store.load();
+        EngineState state{stored_project.definition, stored_project.revision};
 
-    std::string line;
-    while (std::getline(std::cin, line)) {
-        if (line.size() > kMaxRequestBytes) {
-            std::cout << studio::serialize_json(make_error(
-                nullptr, -32600, "Request exceeds the 1 MiB limit")) << '\n' << std::flush;
-            continue;
+        const auto hardware_threads = std::thread::hardware_concurrency();
+        const auto worker_count = std::clamp(
+            hardware_threads == 0 ? 2u : hardware_threads, 2u, 8u);
+        studio::ThreadPool workers(worker_count);
+
+        std::string line;
+        while (std::getline(std::cin, line)) {
+            if (line.size() > kMaxRequestBytes) {
+                std::cout << studio::serialize_json(make_error(
+                    nullptr, -32600, "Request exceeds the 1 MiB limit")) << '\n' << std::flush;
+                continue;
+            }
+
+            studio::Json request;
+            studio::JsonParseError parse_error;
+            if (!studio::parse_json(line, request, parse_error)) {
+                std::cout << studio::serialize_json(make_error(
+                    nullptr, -32700, "Parse error: " + parse_error.message))
+                          << '\n' << std::flush;
+                continue;
+            }
+
+            auto response = studio::serialize_json(handle_request(request, state, project_store, workers));
+            if (response.size() > kMaxRequestBytes) {
+                const auto* request_object=request.as_object();
+                const auto request_id=request_object && request_object->contains("id")
+                    ? request_object->at("id") : studio::Json(nullptr);
+                response=studio::serialize_json(make_error(request_id,-32603,
+                    "Response exceeds the 1 MiB protocol limit; narrow the query"));
+            }
+            std::cout << response << '\n' << std::flush;
         }
-
-        studio::Json request;
-        studio::JsonParseError parse_error;
-        if (!studio::parse_json(line, request, parse_error)) {
-            std::cout << studio::serialize_json(make_error(
-                nullptr, -32700, "Parse error: " + parse_error.message)) << '\n' << std::flush;
-            continue;
-        }
-
-        std::cout << studio::serialize_json(handle_request(request, state, workers))
-                  << '\n' << std::flush;
+    } catch (const std::exception& error) {
+        std::cerr << "Could not initialize project persistence: " << error.what() << '\n';
+        return EXIT_FAILURE;
     }
     return 0;
 }

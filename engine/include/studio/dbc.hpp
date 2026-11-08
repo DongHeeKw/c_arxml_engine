@@ -88,7 +88,7 @@ struct DbcBatchSource {
     DbcParseResult parsed;
 };
 
-[[nodiscard]] DbcParseResult parse_dbc(std::string_view input);
+[[nodiscard]] DbcParseResult parse_dbc(std::string_view input, bool allow_can_fd = false);
 [[nodiscard]] std::vector<DbcBatchFinding> analyze_dbc_batch(
     const std::vector<DbcBatchSource>& sources);
 [[nodiscard]] DbcDiffResult diff_dbc(
