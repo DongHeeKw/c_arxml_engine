@@ -1,5 +1,75 @@
 # ARXML Configuration Studio — Layer Hello World v0.2
 
+## 빠른 실행 가이드
+
+준비: Git, Node.js 22.12 이상, npm, CMake 3.16 이상, C++17 컴파일러, SQLite3 개발 라이브러리. OS별 상세 준비 및 Windows 명령은 아래 상세 가이드를 참고하세요.
+
+### STEP 1. 소스코드 가져오기
+
+```bash
+git clone -b demo/layer-hello-world https://github.com/DongHeeKw/c_arxml_engine.git
+cd c_arxml_engine/hello-world-demo
+```
+
+### STEP 2. C++ 및 DB 실행 (Linux/macOS)
+
+```bash
+cmake -S engine -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+./build/ecu_engine demo.sqlite list
+```
+
+Windows Visual Studio 멀티 구성 빌드는 아래 상세 가이드의 Windows 명령과 ECU_ENGINE 환경변수를 사용하세요.
+
+### STEP 3. UI 없이 통합 테스트
+
+```bash
+npm test
+```
+
+Electron이나 React 실행, npm install 없이 Node.js → C++ → SQLite 연동을 검사합니다.
+
+### STEP 4. React 및 Three.js 빌드
+
+```bash
+npm install
+npm run build
+```
+
+### STEP 5. Electron 실행
+
+```bash
+npm start
+```
+
+## 공부하기 좋은 소스코드 순서
+
+| 순서 | 파일 | 공부할 내용 |
+|---|---|---|
+| 1 | [schema.sql](database/schema.sql) | DB 테이블 생성 |
+| 2 | [main.cpp](engine/main.cpp) | SQL 실행, JSON 반환 |
+| 3 | [smoke.cjs](tests/smoke.cjs) | JavaScript에서 C++ 호출 |
+| 4 | [main.cjs](electron/main.cjs) | Electron 프로세스 |
+| 5 | [preload.cjs](electron/preload.cjs) | IPC 인터페이스 |
+| 6 | [App.tsx](react/App.tsx) | UI, Component, State |
+| 7 | [Vehicle.tsx](three/Vehicle.tsx) | 3D 객체 및 렌더링 |
+
+## 검증 상태
+
+| 항목 | 상태 |
+|---|---|
+| GitHub 브랜치 생성 및 기존 데모 파일 13개 커밋 | 완료 |
+| 기존 main 브랜치 변경 | 없음 |
+| 현재 브랜치 C++ 빌드 및 Node.js 통합 테스트 | 미검증 |
+| TypeScript / React / Three.js 빌드 | 미검증 |
+| 실제 Electron GUI 실행 | 미검증 |
+
+구현과 커밋 완료는 실제 실행 검증 완료를 의미하지 않습니다.
+
+---
+
+## 상세 가이드
+
 AUTOSAR 실제 설정 엔진이 아닌 독립적인 학습용 데모입니다. 기존 프로젝트를 변경하지 않습니다.
 사진을 참고한 어두운 3단 UI, 4개 ECU, 3D 차량, 속성 패널, 콘솔과 상태 표시줄을 제공합니다.
 차량은 외부 모델 없이 기본 Three.js 도형으로 구성됩니다. Import DBC / Generate Code는 비활성 예시입니다.
