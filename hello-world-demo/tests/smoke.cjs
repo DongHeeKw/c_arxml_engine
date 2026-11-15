@@ -1,0 +1,4 @@
+const assert=require('node:assert/strict');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');const {execFileSync}=require('node:child_process');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ecu-test-'));const db=path.join(dir,'test.sqlite');const engine=process.env.ECU_ENGINE||path.resolve(__dirname,'..','build',process.platform==='win32'?'ecu_engine.exe':'ecu_engine');
+function call(...args){return JSON.parse(execFileSync(engine,[db,...args],{encoding:'utf8'}));}
+try{assert.equal(call('list').filter(x=>x.enabled).length,3);assert.equal(call('set','VCU','1').filter(x=>x.enabled).length,4);assert.equal(call('list').find(x=>x.name==='VCU').enabled,true);assert.equal(call('set','ADAS','0').filter(x=>x.enabled).length,3);console.log('PASS: Node → C++ → SQLite → JSON; persistence verified');}finally{fs.rmSync(dir,{recursive:true,force:true});}
