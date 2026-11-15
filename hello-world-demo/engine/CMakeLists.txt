@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.16)
+project(ecu_hello LANGUAGES CXX)
+find_package(SQLite3 REQUIRED)
+add_executable(ecu_engine main.cpp)
+target_compile_features(ecu_engine PRIVATE cxx_std_17)
+target_link_libraries(ecu_engine PRIVATE SQLite::SQLite3)
+
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../database/schema.sql")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../database/schema.sql" SCHEMA_SQL)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/schema.h" "#pragma once\nstatic constexpr const char* ECU_SCHEMA = R\"SQL(${SCHEMA_SQL})SQL\";\n")
+target_include_directories(ecu_engine PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
