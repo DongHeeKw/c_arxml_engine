@@ -12,6 +12,7 @@ async function engine(...args){
 }
 app.whenReady().then(()=>{
   ipcMain.handle('ecu:list',()=>engine('list'));
+  ipcMain.handle('ecu:history',()=>engine('history'));
   ipcMain.handle('ecu:set',(_,name,enabled)=>{
     if(!['ADAS','BCM','CGW','VCU'].includes(name)||typeof enabled!=='boolean')throw Error('Invalid ECU request');
     return engine('set',name,enabled?'1':'0');
