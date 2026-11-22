@@ -10,9 +10,10 @@ test('preload exposes only list and set via IPC',async()=>{
  const ipcRenderer={invoke:async(...args)=>{sent.push(args);return [];}};
  const code=fs.readFileSync(path.resolve(__dirname,'../electron/preload.cjs'),'utf8');
  vm.runInNewContext(code,{require:(name)=>{assert.equal(name,'electron');return {contextBridge,ipcRenderer};}});
- assert.deepEqual(Object.keys(api.ecu).sort(),['list','set']);
+ assert.deepEqual(Object.keys(api.ecu).sort(),['history','list','set']);
  await api.ecu.list();
+ await api.ecu.history();
  await api.ecu.set('ADAS',false);
- assert.equal(JSON.stringify(sent),JSON.stringify([['ecu:list'],['ecu:set','ADAS',false]]));
+ assert.equal(JSON.stringify(sent),JSON.stringify([['ecu:list'],['ecu:history'],['ecu:set','ADAS',false]]));
  assert.equal('exec' in api.ecu,false);
 });
