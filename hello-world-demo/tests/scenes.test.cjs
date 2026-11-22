@@ -19,8 +19,11 @@ test('all four scene assets are real standalone SVG files',()=>{
  }
 });
 test('scene picker references each existing asset and retains live 3D',()=>{
- const source=fs.readFileSync(path.join(root,'react','App.tsx'),'utf8');
- for(const name of scenes)assert.ok(source.includes(name),'missing UI reference '+name);
- assert.ok(source.includes("scene==='live-3d'"));
- assert.ok(source.includes("'./assets/'"));
+ const model=fs.readFileSync(path.join(root,'react','studio-model.ts'),'utf8');
+ const ui=fs.readFileSync(path.join(root,'react','App.tsx'),'utf8');
+ for(const name of scenes)assert.ok(model.includes(name),'missing catalog entry '+name);
+ assert.ok(model.includes('live-3d'),'missing interactive scene');
+ assert.ok(ui.includes('SCENES.filter'),'UI must render scene catalog');
+ assert.ok(ui.includes('sceneAssetPath'),'UI must resolve images through catalog');
+ assert.ok(ui.includes('stepScene'),'UI must use tested navigation rule');
 });
