@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { Ecu } from '../react/App';
 const locations:Record<string,[number,number]>={ADAS:[0,-2.6],BCM:[-0.78,-0.55],CGW:[0.78,-0.55],VCU:[0,2.45]};
+// Pure, testable view-model: React state decides colors; Three.js only draws them.
+export function ecuVisualState(enabled:boolean,selected:boolean){return {body:enabled?0x08785c:0x46586e,edge:selected?0xffcf45:enabled?0x50e6ad:0x8292a6};}
+export function pointerToNdc(clientX:number,clientY:number,rect:{left:number;top:number;width:number;height:number}){if(rect.width<=0||rect.height<=0)throw Error('Invalid canvas bounds');return {x:(clientX-rect.left)/rect.width*2-1,y:-(clientY-rect.top)/rect.height*2+1};}
 export function Vehicle({ecus,selected,onSelect}:{ecus:Ecu[];selected:string;onSelect:(name:string)=>void}){
  const host=useRef<HTMLDivElement>(null);
  const labels=useRef(new Map<string,{mesh:THREE.Mesh<THREE.BoxGeometry,THREE.MeshStandardMaterial>;outline:THREE.LineSegments<THREE.EdgesGeometry,THREE.LineBasicMaterial>}>());
@@ -34,7 +37,7 @@ export function Vehicle({ecus,selected,onSelect}:{ecus:Ecu[];selected:string;onS
    const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(canvas),depthTest:false}));sprite.position.set(x,1.15,z);sprite.scale.set(1.05,.4,1);scene.add(sprite);
   }
   const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
-  function click(e:MouseEvent){const bounds=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-bounds.left)/bounds.width*2-1,-(e.clientY-bounds.top)/bounds.height*2+1);ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects([...labels.current.values()].map(v=>v.mesh),false)[0];if(hit)callback.current(hit.object.userData.name);}
+  function click(e:MouseEvent){const bounds=renderer.domElement.getBoundingClientRect();const normalized=pointerToNdc(e.clientX,e.clientY,bounds);pointer.set(normalized.x,normalized.y);ray.setFromCamera(pointer,camera);const hit=ray.intersectObjects([...labels.current.values()].map(v=>v.mesh),false)[0];if(hit)callback.current(hit.object.userData.name);}
   renderer.domElement.addEventListener('click',click);
   function resize(){const w=Math.max(1,node.clientWidth),h=Math.max(1,node.clientHeight);renderer.setSize(w,h);const aspect=w/h,half=Math.max(4.8,3.6/aspect);camera.left=-half*aspect;camera.right=half*aspect;camera.top=half;camera.bottom=-half;camera.updateProjectionMatrix();}
   const observer=new ResizeObserver(resize);observer.observe(node);resize();
@@ -42,6 +45,6 @@ export function Vehicle({ecus,selected,onSelect}:{ecus:Ecu[];selected:string;onS
   return ()=>{observer.disconnect();renderer.setAnimationLoop(null);renderer.domElement.removeEventListener('click',click);scene.traverse(o=>{if(o instanceof THREE.Mesh||o instanceof THREE.LineSegments){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}if(o instanceof THREE.Sprite){o.material.map?.dispose();o.material.dispose();}});renderer.dispose();renderer.domElement.remove();labels.current.clear();};
  },[]);
  // React state -> actual Three.js material update, only after backend response.
- useEffect(()=>{for(const [name,{mesh,outline}] of labels.current){const enabled=ecus.find(e=>e.name===name)?.enabled??false;mesh.material.color.set(enabled?0x08785c:0x46586e);outline.material.color.set(name===selected?0xffcf45:enabled?0x50e6ad:0x8292a6);}console.log('[Three.js] synchronized state',ecus,selected);},[ecus,selected]);
+ useEffect(()=>{for(const [name,{mesh,outline}] of labels.current){const enabled=ecus.find(e=>e.name===name)?.enabled??false;const style=ecuVisualState(enabled,name===selected);mesh.material.color.set(style.body);outline.material.color.set(style.edge);}console.log('[Three.js] synchronized state',ecus,selected);},[ecus,selected]);
  return <div ref={host} style={{width:'100%',height:'100%'}}/>;
 }
