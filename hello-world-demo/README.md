@@ -1,4 +1,65 @@
-# ARXML Configuration Studio — Layer Hello World v0.2
+# ARXML Configuration Studio — Layer Hello World v0.3 (TDD)
+
+## v0.3: 선언적 설계 + 테스트 우선 개발
+
+### 참고한 글과 적용 방법
+
+| 읽을거리 | 핵심 개념 | 이번 데모에서 확인할 위치 |
+|---|---|---|
+| [토스: 선언적인 코드 작성하기](https://toss.tech/article/frontend-declarative-code) | 세부 실행 과정보다는 의도를 표현하는 추상화 | `three/Vehicle.tsx`의 `ecuVisualState`, `pointerToNdc` |
+| [Frontend Fundamentals: 좋은 코드를 위한 4가지 기준](https://frontend-fundamentals.com/code-quality/code/) | 가독성, 예측 가능성, 응집도, 결합도 | Electron IPC 계약, Three.js 순수 함수, tests 폴더 |
+| [SQLite CREATE TABLE](https://www.sqlite.org/lang_createtable.html) | PRIMARY KEY, NOT NULL, CHECK, FK로 불변식 보호 | `database/schema.sql` |
+| [SQLite Transactions](https://www.sqlite.org/lang_transaction.html) | BEGIN IMMEDIATE, COMMIT, ROLLBACK | `engine/main.cpp` |
+| [SQLite Foreign Keys](https://www.sqlite.org/foreignkeys.html) | 관계의 무결성과 PRAGMA foreign_keys | `database/schema.sql` |
+| [Martin Fowler: Gateway](https://martinfowler.com/articles/gateway-pattern.html) | 외부 시스템/DB 통신을 추상화 경계 뒤에 배치 | `engine/main.cpp`의 SQL 접근 함수 |
+| [Martin Fowler: Repository](https://martinfowler.com/eaaCatalog/repository.html) | 복잡한 도메인과 저장소를 분리할 때 고려 | 이번에는 의도적으로 미도입 |
+| [Martin Fowler: Evolutionary Database Design](https://martinfowler.com/articles/evodb.html) | 스키마 변경과 테스트를 함께 버전 관리 | schema.sql 및 tests; 마이그레이션은 향후 과제 |
+
+이 참고자료의 원칙을 이 데모에 적용한 방식이지, 해당 글들이 이 코드 구조를 직접 권장한다는 의미는 아닙니다.
+
+### DB 경계 원칙
+
+- React와 Three.js는 **SQL을 호출하지 않습니다**. 데이터 요청은 오직 Electron preload → main IPC → C++ → SQLite를 거칩니다.
+- SQLite는 PK/NOT NULL/CHECK/FK 등 가능한 불변식을 보장합니다.
+- C++에서 SQL은 문자열 연결 대신 바인딩 파라미터로 실행합니다.
+- **한 상태 변경과 그 변경 이력 저장은 하나의 트랜잭션**으로 취급합니다.
+- 같은 상태를 다시 저장해도 변경 이력이 중복으로 남지 않습니다.
+- 테스트는 OS 임시 디렉터리에 독립적인 SQLite DB를 생성하고 종료 후 삭제합니다.
+
+### 실습: 영속성, 이력, 무결성
+
+```bash
+./build/ecu_engine demo-v03.sqlite list
+./build/ecu_engine demo-v03.sqlite set VCU 1
+./build/ecu_engine demo-v03.sqlite set VCU 1
+./build/ecu_engine demo-v03.sqlite history
+./build/ecu_engine demo-v03.sqlite check
+npm test
+npm run test:three
+npm run test:all
+```
+
+위 명령에서 VCU의 두 번째 설정은 중복 이력을 추가하지 않아야 합니다. `history`에는 최초 변경만 기록됩니다.
+GUI에서는 `DB History` 버튼으로 동일한 SQLite 변경 이력 데이터를 IPC를 통해 확인할 수 있습니다.
+
+### TDD 단계별 목표
+
+| 테스트 | 실패시 의심할 경계 | 검증하려는 계약 |
+|---|---|---|
+| `tests/smoke.cjs` | Node → C++ → SQLite | 초기화, 재조회, 변경, 이력, 유효성, 무결성 |
+| `tests/electron.test.cjs` | preload → IPC | UI에 노출된 함수와 채널 이름 |
+| `tests/three.test.ts` | React state → Three 계산 | 선택 색상 우선순위 및 좌표 정규화 |
+
+실제 Electron 창 렌더링 및 WebGL GPU 출력까지 자동 검증하는 E2E 테스트는 아직 없습니다.
+Red → Green → Refactor 과정의 모든 중간 커밋을 보존한 것은 아닙니다. 테스트와 리팩토링 결과가 버전 관리에 반영되었습니다.
+
+### 기존 DB와의 호환성 참고
+
+기존 v0.2 DB의 `ecu` 테이블은 유지되며, `ecu_change` 이력 테이블이 추가됩니다.
+이전 버전에서 이미 일어난 상태 변경은 이력에 소급해 기록되지 않습니다.
+현재는 학습용 스키마 초기화 방식입니다. Production에서는 명시적 버전 마이그레이션, 백업, 복구, 동시성 부하 테스트가 필요합니다.
+
+---
 
 ## 빠른 실행 가이드
 
@@ -7,7 +68,7 @@
 ### STEP 1. 소스코드 가져오기
 
 ```bash
-git clone -b demo/layer-hello-world https://github.com/DongHeeKw/c_arxml_engine.git
+git clone -b demo/tdd-architecture-v03 https://github.com/DongHeeKw/c_arxml_engine.git
 cd c_arxml_engine/hello-world-demo
 ```
 
@@ -33,6 +94,7 @@ Electron이나 React 실행, npm install 없이 Node.js → C++ → SQLite 연�
 
 ```bash
 npm install
+npm run test:three
 npm run build
 ```
 
@@ -53,6 +115,9 @@ npm start
 | 5 | [preload.cjs](electron/preload.cjs) | IPC 인터페이스 |
 | 6 | [App.tsx](react/App.tsx) | UI, Component, State |
 | 7 | [Vehicle.tsx](three/Vehicle.tsx) | 3D 객체 및 렌더링 |
+| 8 | [smoke.cjs](tests/smoke.cjs) | DB 트랜잭션/영속성/멱등성 회귀 테스트 |
+| 9 | [electron.test.cjs](tests/electron.test.cjs) | preload의 제한된 IPC 계약 테스트 |
+| 10 | [three.test.ts](tests/three.test.ts) | Three.js 스타일 및 화면 좌표 단위 테스트 |
 
 ## 검증 상태
 
