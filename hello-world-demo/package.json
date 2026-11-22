@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build --base ./",
     "start": "electron .",
-    "test": "node tests/smoke.cjs && node --test tests/electron.test.cjs",
+    "test": "node tests/smoke.cjs && node --test tests/electron.test.cjs && node --test tests/scenes.test.cjs",
     "test:three": "tsx --test tests/three.test.ts",
     "test:all": "npm test && npm run test:three && npm run build"
   },
