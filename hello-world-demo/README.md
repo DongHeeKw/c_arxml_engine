@@ -1,4 +1,52 @@
-# ARXML Configuration Studio — Layer Hello World v0.3 (TDD)
+# ARXML Configuration Studio — Visual Engineering v0.4
+
+## v0.4 — Visual Studio / Scene Gallery
+
+v0.3 TDD 아키텍처는 유지하고, 참고 사진의 분위기에 맞춰 작업 화면을 개선했습니다.
+
+### 새 화면 구성
+
+| 화면 | 에셋 파일 | 사용 목적 |
+|---|---|---|
+| Studio | [studio-day.svg](public/assets/studio-day.svg) | 차량 투명 바디, ECU 오버레이를 보여주는 기본 장면 |
+| Topology | [topology-map.svg](public/assets/topology-map.svg) | 차량 상단에서 네트워크와 ECU를 비교 |
+| ECU Detail | [module-detail.svg](public/assets/module-detail.svg) | ECU 검사 시점을 표현 |
+| Night | [inspection-night.svg](public/assets/inspection-night.svg) | 어두운 환경과 발광 연결선 비교 |
+| Live 3D | [Vehicle.tsx](three/Vehicle.tsx) | 실제 Three.js WebGL로 ECU를 선택하는 인터랙티브 장면 |
+
+### 작동 범위와 한계
+
+- Studio/Topology/ECU Detail/Night는 **SVG 참고 일러스트**이며 실시간 3D나 실제 ECU 좌표 데이터가 아닙니다.
+- 상단 **Live 3D** 버튼에서 Three.js 렌더러로 전환할 수 있습니다. 이미지 갤러리에서 표시되는 ECU는 정적 일러스트입니다.
+- 왼쪽 Project Explorer 또는 화면 아래 ECU 버튼을 선택하면 오른쪽 Properties가 변경됩니다.
+- Properties의 Enabled 체크박스만 실제 C++ 및 SQLite 상태를 변경합니다.
+- DB History 버튼에서 실제 변경 이력을 확인할 수 있습니다.
+- 장면과 선택 상태는 현재 UI 메모리 상태이며 다시 실행하면 기본값으로 돌아갑니다.
+- DB 상태는 영구 저장됩니다. Import DBC와 Generate Code는 아직 데모용 비활성 버튼입니다.
+- 원본 고해상도 생성 이미지는 SVG와 별개입니다. GitHub에 등록된 그림은 위에 링크된 SVG 4개이며, 원본 생성 이미지가 GitHub에 업로드됐다는 뜻이 아닙니다.
+
+### 학습용 핵심 코드
+
+- [App.tsx](react/App.tsx): scenes[] 데이터만 추가하여 장면 카드를 늘리는 **선언적 UI** 구성
+- [Vehicle.tsx](three/Vehicle.tsx): 실시간 렌더링과 상태에 따른 ECU 색상 변경
+- [scenes.test.cjs](tests/scenes.test.cjs): 에셋 4개와 UI 참조가 유지되는지 검사
+- [public/assets](public/assets): Vite가 정적 파일을 dist/assets로 복사하는 경로
+
+```bash
+npm test                 # C++/DB + IPC + 에셋 계약 테스트
+npm install
+npm run test:three       # Three.js 계산 로직 테스트
+npm run build            # TypeScript/Vite 빌드
+npm start                # Electron UI 실행
+```
+
+참고: 이미 빌드된 dist/가 있다면 코드를 바꾼 뒤 `npm run build`를 다시 실행해야 변경한 장면이 보입니다.
+
+### 상태
+
+GitHub 파일 커밋은 확인됐지만 해당 환경의 C++ 컴파일, TypeScript 빌드, 실제 Electron GUI 및 GPU 렌더링 결과는 아직 검증되지 않았습니다.
+
+---
 
 ## v0.3: 선언적 설계 + 테스트 우선 개발
 
@@ -68,7 +116,7 @@ Red → Green → Refactor 과정의 모든 중간 커밋을 보존한 것은 �
 ### STEP 1. 소스코드 가져오기
 
 ```bash
-git clone -b demo/tdd-architecture-v03 https://github.com/DongHeeKw/c_arxml_engine.git
+git clone -b demo/visual-studio-v04 https://github.com/DongHeeKw/c_arxml_engine.git
 cd c_arxml_engine/hello-world-demo
 ```
 
