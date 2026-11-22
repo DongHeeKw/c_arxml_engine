@@ -1,4 +1,53 @@
-# ARXML Configuration Studio — Visual Engineering v0.4
+# ARXML Configuration Studio — Study Branch
+
+## 학습 및 개발 진입점 (study)
+
+이 브랜치는 `demo/layer-hello-world` → `demo/tdd-architecture-v03` → `study`의 순차적인 커밋 기록을 하나로 포함합니다. 브랜치 사이에 독립적인 변경 충돌이 없어 가장 최신 브랜치에서 `study`를 만들었습니다. `main`은 변경하지 않았습니다.
+
+이번 추가 리팩토링은 사용자가 공유한 아래 두 자료의 *변경하기 쉬운 코드* 원칙을 직접 적용합니다.
+
+- [토스: 선언적인 코드 작성하기](https://toss.tech/article/frontend-declarative-code): 작업 의도를 드러내는 추상화, 재사용 여부와 요구 변경에 따른 추상화 수준 선택
+- [Frontend Fundamentals: 좋은 코드를 위한 4가지 기준](https://frontend-fundamentals.com/code-quality/code/): 가독성·예측 가능성·응집도·결합도
+
+### v0.5 변경 내용
+
+- `react/studio-model.ts`: 장면 목록, ECU UI 메타데이터, 이전/다음 전환, 선택 상태 조회를 하나의 UI 기능 모듈로 분리
+- `react/App.tsx`: 모델의 선언적인 데이터와 함수를 사용하여 카드 및 ECU UI 표시
+- 이전/다음 장면 이동 버튼과 순환 규칙 추가 (Studio → Topology → Detail → Night → Live 3D → Studio)
+- `tests/studio-model.test.ts`: 장면 이동, 순환, 이미지 경로, ECU 상태 파생 계산의 독립 단위 테스트
+- `tests/scenes.test.cjs`: 실제 에셋 파일과 장면 목록을 검증하도록 수정
+- `npm run test:all`: Backend, Electron preload, 에셋, Three.js, UI 상태 테스트, 프론트 빌드를 순서대로 실행
+
+기능별로 하나의 모듈을 두되 보안상의 preload, CMake 등 도구별 필수 파일은 유지했습니다. UI/DB/실제 Three.js를 한 파일에 억지로 넣지 않습니다.
+
+### 시작하기
+
+```bash
+git clone -b study https://github.com/DongHeeKw/c_arxml_engine.git
+cd c_arxml_engine/hello-world-demo
+
+# C++ 빌드: Linux
+cmake -S engine -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+
+# UI 없는 C++ ↔ SQLite 테스트와 Electron IPC 계약
+npm test
+
+# UI 상태/장면 전환의 독립 테스트
+npm install
+npm run test:ui
+npm run test:three
+
+# 실제 앱
+npm run build
+npm start
+```
+
+기존 v0.4 문서의 `study` URL은 이 브랜치에서는 `study`로 바꾸어 사용하면 됩니다.
+
+**검증 상태**: GitHub 쓰기 및 파일 재조회 확인. 현재 도구 실행 환경에서는 GitHub로부터 전체 저장소를 clone할 네트워크 접근이 없어 C++ 컴파일, Node 테스트, Electron 실제 렌더링을 끝까지 검증하지 못했습니다. 따라서 테스트 **추가 완료**와 테스트 **통과 검증**은 다릅니다.
+
+---
 
 ## v0.4 — Visual Studio / Scene Gallery
 
@@ -116,7 +165,7 @@ Red → Green → Refactor 과정의 모든 중간 커밋을 보존한 것은 �
 ### STEP 1. 소스코드 가져오기
 
 ```bash
-git clone -b demo/visual-studio-v04 https://github.com/DongHeeKw/c_arxml_engine.git
+git clone -b study https://github.com/DongHeeKw/c_arxml_engine.git
 cd c_arxml_engine/hello-world-demo
 ```
 
